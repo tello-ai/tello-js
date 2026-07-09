@@ -10,9 +10,10 @@ import {
 
 describe("command frames", () => {
   it("uses Nest websocket envelope and camelCase data", () => {
-    expect(createCallFrame("agent-1", "hi", { src: "test" }, "r1")).toEqual({
+    expect(createCallFrame("+821012345678", "agent-1", "hi", { src: "test" }, "r1")).toEqual({
       event: "create_call",
       data: {
+        to: "+821012345678",
         agentId: "agent-1",
         prompt: "hi",
         metadata: { src: "test" },
@@ -22,9 +23,9 @@ describe("command frames", () => {
   });
 
   it("omits optional fields", () => {
-    expect(createCallFrame("agent-1")).toEqual({
+    expect(createCallFrame("+821012345678", "agent-1")).toEqual({
       event: "create_call",
-      data: { agentId: "agent-1", prompt: "" },
+      data: { to: "+821012345678", agentId: "agent-1", prompt: "" },
     });
     expect(answerFrame("yo", "m1")).toEqual({
       event: "answer",

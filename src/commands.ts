@@ -4,12 +4,13 @@ export type CommandFrame = {
 };
 
 export function createCallFrame(
+  to: string,
   agentId: string,
   prompt = "",
   metadata?: Record<string, unknown>,
   requestId?: string,
 ): CommandFrame {
-  const data: Record<string, unknown> = { agentId, prompt };
+  const data: Record<string, unknown> = { to, agentId, prompt };
   if (metadata !== undefined) data.metadata = metadata;
   if (requestId !== undefined) data.requestId = requestId;
   return { event: "create_call", data };

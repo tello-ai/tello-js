@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { CallRejectedError, exceptionFor, NoActiveCallError } from "../src/index.js";
+import { CallRejectedError, exceptionFor, NoActiveCallError, ValidationError } from "../src/index.js";
 
 describe("errors", () => {
   it("maps gateway codes to SDK errors", () => {
     expect(exceptionFor("no_active_call", "No active call")).toBeInstanceOf(NoActiveCallError);
+    expect(exceptionFor("to_required", "to is required")).toBeInstanceOf(ValidationError);
   });
 
   it("preserves call rejection question", () => {

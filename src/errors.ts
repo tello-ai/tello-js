@@ -26,6 +26,7 @@ export function exceptionFor(code: string, message: string, question?: string): 
   switch (code) {
     case "unauthenticated":
       return new AuthenticationError(message);
+    case "to_required":
     case "agent_id_required":
       return new ValidationError(message);
     case "call_already_active":

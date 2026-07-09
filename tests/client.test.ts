@@ -45,13 +45,14 @@ describe("TelloClient", () => {
     });
 
     const client = await new TelloClient({ apiKey: "key-1", url }).connect();
-    await client.createCall("agent-1", "prompt", { src: "test" }, "r1");
+    await client.createCall("+821012345678", "agent-1", "prompt", { src: "test" }, "r1");
 
     expect(await got).toEqual({
       auth: "Bearer key-1",
       frame: {
         event: "create_call",
         data: {
+          to: "+821012345678",
           agentId: "agent-1",
           prompt: "prompt",
           metadata: { src: "test" },
@@ -93,7 +94,7 @@ describe("TelloClient", () => {
     client.on(EventType.UserTurn, (event) => {
       turns.push(event.text ?? "");
     });
-    await client.createCall("agent-1");
+    await client.createCall("+821012345678", "agent-1");
 
     await expect(client.waitClosed()).rejects.toMatchObject({
       name: "CallRejectedError",
@@ -132,7 +133,7 @@ describe("TelloClient", () => {
 
     const client = await new TelloClient({ apiKey: "key-1", url }).connect();
     await client.connect();
-    await client.createCall("agent-1");
+    await client.createCall("+821012345678", "agent-1");
 
     await expect(client.waitClosed()).resolves.toBeUndefined();
     await client.aclose();

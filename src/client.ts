@@ -100,6 +100,7 @@ export class TelloClient extends EventEmitter<TelloEvent> {
   }
 
   async createCall(
+    to: string,
     agentId: string,
     prompt = "",
     metadata?: Record<string, unknown>,
@@ -109,7 +110,7 @@ export class TelloClient extends EventEmitter<TelloEvent> {
     this.callDone = deferred();
     this.callError = undefined;
     this.active = true;
-    this.send(encode(createCallFrame(agentId, prompt, metadata, requestId)));
+    this.send(encode(createCallFrame(to, agentId, prompt, metadata, requestId)));
   }
 
   async answer(text = "", messageId?: string, requestId?: string): Promise<void> {

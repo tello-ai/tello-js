@@ -14,7 +14,7 @@ client.on(EventType.UserTurn, async (event) => {
   await client.answer(`heard: ${event.text ?? ""}`);
 });
 
-await client.createCall("agent-1", "reservation check");
+await client.createCall("+821012345678", "agent-1", "reservation check");
 await client.waitClosed();
 ```
 
