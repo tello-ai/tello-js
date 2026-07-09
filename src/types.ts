@@ -4,6 +4,8 @@ export const EventType = {
   UserTurn: "user.turn",
   AgentTurn: "agent.turn",
   AgentsListed: "agents.listed",
+  CallSummary: "call.summary",
+  SmsSent: "sms.sent",
   CallStatusChanged: "call.status_changed",
   CallCompleted: "call.completed",
   CallNoAnswer: "call.no_answer",
@@ -30,6 +32,13 @@ export type TelloEvent = {
   requestId?: string;
   question?: string;
   agents?: AgentInfo[];
+  durationSeconds?: number | null;
+  transcript?: string | null;
+  summary?: string | null;
+  creditCharged?: number | null;
+  smsId?: string;
+  to?: string;
+  messagePreview?: string;
 };
 
 export type AgentInfo = {

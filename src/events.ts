@@ -14,6 +14,14 @@ function numberValue(value: unknown): number {
   return typeof value === "number" ? value : 0;
 }
 
+function optionalNumberValue(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
+}
+
+function optionalStringValue(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
 function agentsValue(value: unknown): NonNullable<TelloEvent["agents"]> {
   if (!Array.isArray(value)) return [];
   return value
@@ -55,6 +63,21 @@ export function parseEvent(frame: Record<string, unknown>): TelloEvent {
   if (type === EventType.AgentsListed) {
     event.requestId = typeof frame.requestId === "string" ? frame.requestId : undefined;
     event.agents = agentsValue(frame.agents);
+  } else if (type === EventType.CallSummary) {
+    event.requestId = typeof frame.requestId === "string" ? frame.requestId : undefined;
+    event.callId = stringValue(frame.callId);
+    event.status = stringValue(frame.status);
+    event.durationSeconds = optionalNumberValue(frame.durationSeconds);
+    event.transcript = optionalStringValue(frame.transcript);
+    event.summary = optionalStringValue(frame.summary);
+    event.creditCharged = optionalNumberValue(frame.creditCharged);
+  } else if (type === EventType.SmsSent) {
+    event.requestId = typeof frame.requestId === "string" ? frame.requestId : undefined;
+    event.smsId = stringValue(frame.smsId);
+    event.status = stringValue(frame.status);
+    event.to = stringValue(frame.to);
+    event.messagePreview = stringValue(frame.messagePreview);
+    event.callId = stringValue(frame.callId);
   } else if (type === EventType.UserTurn || type === EventType.AgentTurn) {
     event.turnIndex = numberValue(frame.turn_index);
     event.text = stringValue(frame.text);

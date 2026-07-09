@@ -4,9 +4,11 @@ import {
   cancelFrame,
   createCallFrame,
   EventType,
+  getSummaryFrame,
   isTerminal,
   listAgentsFrame,
   parseEvent,
+  sendSmsFrame,
 } from "../src/index.js";
 
 describe("command frames", () => {
@@ -41,6 +43,17 @@ describe("command frames", () => {
       data: { requestId: "agents-1" },
     });
     expect(listAgentsFrame()).toEqual({ event: "listAgents", data: {} });
+  });
+
+  it("builds getSummary and sendSms frames", () => {
+    expect(getSummaryFrame("call-1", "summary-1")).toEqual({
+      event: "getSummary",
+      data: { callId: "call-1", requestId: "summary-1" },
+    });
+    expect(sendSmsFrame("01012345678", "예약 확인", "call-1", "sms-1")).toEqual({
+      event: "sendSms",
+      data: { to: "01012345678", message: "예약 확인", callId: "call-1", requestId: "sms-1" },
+    });
   });
 });
 
@@ -103,6 +116,38 @@ describe("events", () => {
         status: "published",
       },
     ]);
+  });
+
+  it("parses call.summary and sms.sent frames", () => {
+    const summary = parseEvent({
+      type: "call.summary",
+      version: "1.0",
+      requestId: "summary-1",
+      callId: "call-1",
+      status: "completed",
+      durationSeconds: 42,
+      transcript: "고객: 예약 확인",
+      summary: "예약 확인 완료",
+      creditCharged: 15,
+    });
+    expect(summary.type).toBe(EventType.CallSummary);
+    expect(summary.requestId).toBe("summary-1");
+    expect(summary.durationSeconds).toBe(42);
+    expect(summary.creditCharged).toBe(15);
+
+    const sms = parseEvent({
+      type: "sms.sent",
+      version: "1.0",
+      requestId: "sms-1",
+      smsId: "77",
+      status: "queued",
+      to: "01012345678",
+      messagePreview: "예약 확인",
+      callId: "call-1",
+    });
+    expect(sms.type).toBe(EventType.SmsSent);
+    expect(sms.smsId).toBe("77");
+    expect(sms.callId).toBe("call-1");
   });
 
   it("detects terminal events including cancelled status", () => {

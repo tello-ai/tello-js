@@ -1,5 +1,5 @@
 import WebSocket from "ws";
-import { answerFrame, cancelFrame, createCallFrame, encode, listAgentsFrame } from "./commands.js";
+import { answerFrame, cancelFrame, createCallFrame, encode, getSummaryFrame, listAgentsFrame, sendSmsFrame } from "./commands.js";
 import { type ClientConfig, type ClientOptions, resolveConfig } from "./config.js";
 import {
   AuthenticationError,
@@ -123,6 +123,14 @@ export class TelloClient extends EventEmitter<TelloEvent> {
 
   async listAgents(requestId?: string): Promise<void> {
     this.send(encode(listAgentsFrame(requestId)));
+  }
+
+  async getSummary(callId: string, requestId?: string): Promise<void> {
+    this.send(encode(getSummaryFrame(callId, requestId)));
+  }
+
+  async sendSms(to: string, message: string, callId?: string, requestId?: string): Promise<void> {
+    this.send(encode(sendSmsFrame(to, message, callId, requestId)));
   }
 
   private send(payload: string): void {

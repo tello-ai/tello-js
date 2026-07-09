@@ -33,6 +33,19 @@ export function listAgentsFrame(requestId?: string): CommandFrame {
   return { event: "listAgents", data };
 }
 
+export function getSummaryFrame(callId: string, requestId?: string): CommandFrame {
+  const data: Record<string, unknown> = { callId };
+  if (requestId !== undefined) data.requestId = requestId;
+  return { event: "getSummary", data };
+}
+
+export function sendSmsFrame(to: string, message: string, callId?: string, requestId?: string): CommandFrame {
+  const data: Record<string, unknown> = { to, message };
+  if (callId !== undefined) data.callId = callId;
+  if (requestId !== undefined) data.requestId = requestId;
+  return { event: "sendSms", data };
+}
+
 export function encode(frame: CommandFrame): string {
   return JSON.stringify(frame);
 }
