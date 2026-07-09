@@ -1,0 +1,38 @@
+{
+  "name": "@tello/sdk",
+  "version": "0.1.0",
+  "description": "Tello SDK for Node.js - WebSocket realtime client",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "prepack": "npm run build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  }
+}
