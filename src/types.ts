@@ -3,6 +3,7 @@ export const PROTOCOL_VERSION = "1.0";
 export const EventType = {
   UserTurn: "user.turn",
   AgentTurn: "agent.turn",
+  AgentsListed: "agents.listed",
   CallStatusChanged: "call.status_changed",
   CallCompleted: "call.completed",
   CallNoAnswer: "call.no_answer",
@@ -28,4 +29,13 @@ export type TelloEvent = {
   message?: string;
   requestId?: string;
   question?: string;
+  agents?: AgentInfo[];
+};
+
+export type AgentInfo = {
+  agentId: string;
+  name: string;
+  role: string;
+  isDefault: boolean;
+  status: string;
 };

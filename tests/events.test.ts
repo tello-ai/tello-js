@@ -5,6 +5,7 @@ import {
   createCallFrame,
   EventType,
   isTerminal,
+  listAgentsFrame,
   parseEvent,
 } from "../src/index.js";
 
@@ -32,6 +33,14 @@ describe("command frames", () => {
       data: { text: "yo", messageId: "m1" },
     });
     expect(cancelFrame()).toEqual({ event: "cancel", data: {} });
+  });
+
+  it("builds listAgents frames", () => {
+    expect(listAgentsFrame("agents-1")).toEqual({
+      event: "listAgents",
+      data: { requestId: "agents-1" },
+    });
+    expect(listAgentsFrame()).toEqual({ event: "listAgents", data: {} });
   });
 });
 
@@ -65,6 +74,35 @@ describe("events", () => {
     expect(event.code).toBe("call_rejected");
     expect(event.requestId).toBe("r1");
     expect(event.question).toBe("why?");
+  });
+
+  it("parses agents.listed frames", () => {
+    const event = parseEvent({
+      type: "agents.listed",
+      version: "1.0",
+      requestId: "agents-1",
+      agents: [
+        {
+          agentId: "agent-1",
+          name: "예약 확인",
+          role: "AI 상담원",
+          isDefault: true,
+          status: "published",
+        },
+      ],
+    });
+
+    expect(event.type).toBe(EventType.AgentsListed);
+    expect(event.requestId).toBe("agents-1");
+    expect(event.agents).toEqual([
+      {
+        agentId: "agent-1",
+        name: "예약 확인",
+        role: "AI 상담원",
+        isDefault: true,
+        status: "published",
+      },
+    ]);
   });
 
   it("detects terminal events including cancelled status", () => {

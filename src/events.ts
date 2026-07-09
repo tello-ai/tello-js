@@ -14,6 +14,19 @@ function numberValue(value: unknown): number {
   return typeof value === "number" ? value : 0;
 }
 
+function agentsValue(value: unknown): NonNullable<TelloEvent["agents"]> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row))
+    .map((agent) => ({
+      agentId: stringValue(agent.agentId),
+      name: stringValue(agent.name),
+      role: stringValue(agent.role),
+      isDefault: agent.isDefault === true,
+      status: stringValue(agent.status),
+    }));
+}
+
 export function parseEvent(frame: Record<string, unknown>): TelloEvent {
   const type = stringValue(frame.type);
 
@@ -39,7 +52,10 @@ export function parseEvent(frame: Record<string, unknown>): TelloEvent {
     raw: frame,
   };
 
-  if (type === EventType.UserTurn || type === EventType.AgentTurn) {
+  if (type === EventType.AgentsListed) {
+    event.requestId = typeof frame.requestId === "string" ? frame.requestId : undefined;
+    event.agents = agentsValue(frame.agents);
+  } else if (type === EventType.UserTurn || type === EventType.AgentTurn) {
     event.turnIndex = numberValue(frame.turn_index);
     event.text = stringValue(frame.text);
   } else if (type === EventType.CallStatusChanged) {

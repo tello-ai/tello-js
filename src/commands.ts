@@ -27,6 +27,12 @@ export function cancelFrame(): CommandFrame {
   return { event: "cancel", data: {} };
 }
 
+export function listAgentsFrame(requestId?: string): CommandFrame {
+  const data: Record<string, unknown> = {};
+  if (requestId !== undefined) data.requestId = requestId;
+  return { event: "listAgents", data };
+}
+
 export function encode(frame: CommandFrame): string {
   return JSON.stringify(frame);
 }
