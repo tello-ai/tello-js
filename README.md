@@ -12,6 +12,7 @@ const client = await new TelloClient({
 
 client.on(EventType.UserTurn, async (event) => {
   await client.answer(`heard: ${event.text ?? ""}`);
+  await client.sendDtmf("1234#");
 });
 
 await client.createCall("+821012345678", "agent-1", "reservation check");

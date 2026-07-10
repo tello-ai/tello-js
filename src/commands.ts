@@ -13,7 +13,7 @@ export function createCallFrame(
   const data: Record<string, unknown> = { to, agentId, prompt };
   if (metadata !== undefined) data.metadata = metadata;
   if (requestId !== undefined) data.requestId = requestId;
-  return { event: "create_call", data };
+  return { event: "createCall", data };
 }
 
 export function answerFrame(text = "", messageId?: string, requestId?: string): CommandFrame {
@@ -21,6 +21,13 @@ export function answerFrame(text = "", messageId?: string, requestId?: string): 
   if (messageId !== undefined) data.messageId = messageId;
   if (requestId !== undefined) data.requestId = requestId;
   return { event: "answer", data };
+}
+
+export function sendDtmfFrame(digits: string, messageId?: string, requestId?: string): CommandFrame {
+  const data: Record<string, unknown> = { digits };
+  if (messageId !== undefined) data.messageId = messageId;
+  if (requestId !== undefined) data.requestId = requestId;
+  return { event: "sendDtmf", data };
 }
 
 export function cancelFrame(): CommandFrame {

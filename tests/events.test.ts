@@ -8,13 +8,14 @@ import {
   isTerminal,
   listAgentsFrame,
   parseEvent,
+  sendDtmfFrame,
   sendSmsFrame,
 } from "../src/index.js";
 
 describe("command frames", () => {
   it("uses Nest websocket envelope and camelCase data", () => {
     expect(createCallFrame("+821012345678", "agent-1", "hi", { src: "test" }, "r1")).toEqual({
-      event: "create_call",
+      event: "createCall",
       data: {
         to: "+821012345678",
         agentId: "agent-1",
@@ -27,14 +28,29 @@ describe("command frames", () => {
 
   it("omits optional fields", () => {
     expect(createCallFrame("+821012345678", "agent-1")).toEqual({
-      event: "create_call",
+      event: "createCall",
       data: { to: "+821012345678", agentId: "agent-1", prompt: "" },
     });
     expect(answerFrame("yo", "m1")).toEqual({
       event: "answer",
       data: { text: "yo", messageId: "m1" },
     });
+    expect(sendDtmfFrame("1234#", "m1")).toEqual({
+      event: "sendDtmf",
+      data: { digits: "1234#", messageId: "m1" },
+    });
     expect(cancelFrame()).toEqual({ event: "cancel", data: {} });
+  });
+
+  it("builds sendDtmf frames with request id", () => {
+    expect(sendDtmfFrame("1234#", "m1", "r1")).toEqual({
+      event: "sendDtmf",
+      data: { digits: "1234#", messageId: "m1", requestId: "r1" },
+    });
+    expect(sendDtmfFrame("5")).toEqual({
+      event: "sendDtmf",
+      data: { digits: "5" },
+    });
   });
 
   it("builds listAgents frames", () => {
@@ -62,8 +78,8 @@ describe("events", () => {
     const event = parseEvent({
       type: "user.turn",
       version: "1.0",
-      call_id: "c1",
-      turn_index: 2,
+      callId: "c1",
+      turnIndex: 2,
       text: "hey",
       timestamp: "t",
     });
@@ -80,7 +96,7 @@ describe("events", () => {
       version: "1.0",
       code: "call_rejected",
       message: "Call rejected",
-      request_id: "r1",
+      requestId: "r1",
       question: "why?",
     });
 
@@ -156,7 +172,7 @@ describe("events", () => {
         parseEvent({
           type: "call.completed",
           version: "1.0",
-          call_id: "c1",
+          callId: "c1",
           status: "completed",
           timestamp: "t",
         }),
@@ -167,9 +183,9 @@ describe("events", () => {
         parseEvent({
           type: "call.status_changed",
           version: "1.0",
-          call_id: "c1",
+          callId: "c1",
           status: "cancelled",
-          previous_status: "in_progress",
+          previousStatus: "in_progress",
           timestamp: "t",
         }),
       ),
