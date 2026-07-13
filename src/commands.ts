@@ -3,6 +3,12 @@ export type CommandFrame = {
   data: Record<string, unknown>;
 };
 
+export function authenticateFrame(apiKey: string, requestId?: string): CommandFrame {
+  const data: Record<string, unknown> = { apiKey };
+  if (requestId !== undefined) data.requestId = requestId;
+  return { event: "authenticate", data };
+}
+
 export function createCallFrame(
   to: string,
   agentId: string,

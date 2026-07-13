@@ -1,6 +1,7 @@
 export const PROTOCOL_VERSION = "1.0";
 
 export const EventType = {
+  AuthOk: "auth.ok",
   UserTurn: "user.turn",
   AgentTurn: "agent.turn",
   AgentsListed: "agents.listed",

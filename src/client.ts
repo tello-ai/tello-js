@@ -1,5 +1,15 @@
 import WebSocket from "ws";
-import { answerFrame, cancelFrame, createCallFrame, encode, getSummaryFrame, listAgentsFrame, sendDtmfFrame, sendSmsFrame } from "./commands.js";
+import {
+  answerFrame,
+  authenticateFrame,
+  cancelFrame,
+  createCallFrame,
+  encode,
+  getSummaryFrame,
+  listAgentsFrame,
+  sendDtmfFrame,
+  sendSmsFrame,
+} from "./commands.js";
 import { type ClientConfig, type ClientOptions, resolveConfig } from "./config.js";
 import {
   AuthenticationError,
@@ -29,6 +39,22 @@ function deferred(): Deferred {
   return { promise, resolve };
 }
 
+type Gate = {
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: Error) => void;
+};
+
+function gate(): Gate {
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
 export class TelloClient extends EventEmitter<TelloEvent> {
   private readonly config: ClientConfig;
   private ws?: WebSocket;
@@ -37,6 +63,8 @@ export class TelloClient extends EventEmitter<TelloEvent> {
   private closeError?: TelloError;
   private callError?: TelloError;
   private active = false;
+  private authed = false;
+  private pendingAuth?: Gate;
   private callGen = 0;
   private socketGen = 0;
 
@@ -50,8 +78,10 @@ export class TelloClient extends EventEmitter<TelloEvent> {
     this.closed = deferred();
     this.closeError = undefined;
     this.callError = undefined;
+    this.authed = false;
+    // No Authorization header and no query token: the API key is sent only in
+    // the first application frame after the socket opens (see authenticate()).
     const ws = new WebSocket(this.config.url, {
-      headers: { Authorization: `Bearer ${this.config.apiKey}` },
       handshakeTimeout: this.config.openTimeoutMs,
     });
     const gen = this.socketGen + 1;
@@ -74,7 +104,38 @@ export class TelloClient extends EventEmitter<TelloEvent> {
       ws.once("open", resolve);
       ws.once("error", reject);
     });
+
+    await this.authenticate();
     return this;
+  }
+
+  private async authenticate(): Promise<void> {
+    const auth = gate();
+    this.pendingAuth = auth;
+    const timer = setTimeout(() => {
+      auth.reject(new ConnectionClosedError("timed out waiting for authentication"));
+    }, this.config.openTimeoutMs);
+    try {
+      // The authenticate frame MUST be the first application frame we send, and
+      // nothing else may go out until the server confirms with auth.ok.
+      this.sendFrame(encode(authenticateFrame(this.config.apiKey, this.config.authRequestId)));
+      await auth.promise;
+      this.authed = true;
+    } catch (error) {
+      // Tear down the half-open socket; never surface the key in the failure.
+      this.teardown();
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      if (this.pendingAuth === auth) this.pendingAuth = undefined;
+    }
+  }
+
+  private teardown(): void {
+    const ws = this.ws;
+    if (ws && ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+      ws.close();
+    }
   }
 
   async aclose(): Promise<void> {
@@ -138,6 +199,14 @@ export class TelloClient extends EventEmitter<TelloEvent> {
   }
 
   private send(payload: string): void {
+    // Business commands must never be sent before the auth handshake completes.
+    if (!this.authed) {
+      throw this.connectionError();
+    }
+    this.sendFrame(payload);
+  }
+
+  private sendFrame(payload: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw this.connectionError();
     }
@@ -159,10 +228,16 @@ export class TelloClient extends EventEmitter<TelloEvent> {
   private async dispatch(gen: number, frame: Record<string, unknown>): Promise<void> {
     if (gen !== this.socketGen) return;
     const event = parseEvent(frame);
+    if (event.type === EventType.AuthOk) {
+      // Internal handshake frame: unblock connect(); do not re-emit downstream.
+      this.pendingAuth?.resolve();
+      return;
+    }
     if (event.type === EventType.Error) {
       const error = exceptionFor(event.code ?? "", event.message ?? "", event.question);
       if (event.code === "unauthenticated") {
         this.closeError = error;
+        this.pendingAuth?.reject(error);
       } else if (this.active && !NON_ABORTING_ERROR_CODES.has(event.code ?? "")) {
         this.callError = error;
         this.active = false;
@@ -190,6 +265,10 @@ export class TelloClient extends EventEmitter<TelloEvent> {
       } else if (this.active) {
         this.closeError = new ConnectionClosedError("connection closed before call terminated");
       }
+    }
+    // A close arriving before auth.ok (including 4401) is an auth failure.
+    if (this.pendingAuth) {
+      this.pendingAuth.reject(this.closeError ?? new ConnectionClosedError("connection closed during authentication"));
     }
     this.active = false;
     await this.safeEmit(EventType.Disconnected, {

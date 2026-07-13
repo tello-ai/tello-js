@@ -7,6 +7,7 @@ export type ClientConfig = {
   url: string;
   openTimeoutMs: number;
   closeTimeoutMs: number;
+  authRequestId?: string;
 };
 
 export type ClientOptions = {
@@ -14,6 +15,7 @@ export type ClientOptions = {
   url?: string;
   openTimeoutMs?: number;
   closeTimeoutMs?: number;
+  authRequestId?: string;
 };
 
 export function resolveConfig(options: ClientOptions = {}): ClientConfig {
@@ -26,5 +28,6 @@ export function resolveConfig(options: ClientOptions = {}): ClientConfig {
     url: options.url ?? process.env[ENV_URL] ?? DEFAULT_URL,
     openTimeoutMs: options.openTimeoutMs ?? 10_000,
     closeTimeoutMs: options.closeTimeoutMs ?? 5_000,
+    authRequestId: options.authRequestId,
   };
 }
