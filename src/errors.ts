@@ -26,16 +26,24 @@ export function exceptionFor(code: string, message: string, question?: string): 
   switch (code) {
     case "unauthenticated":
       return new AuthenticationError(message);
-    case "to_required":
-    case "agent_id_required":
+    case "toRequired":
+    case "agentIdRequired":
+    case "callIdRequired":
+    case "smsToRequired":
+    case "smsMessageRequired":
+    case "dtmfDigitsRequired":
+    case "dtmfDigitsInvalid":
       return new ValidationError(message);
-    case "call_already_active":
+    case "callAlreadyActive":
       return new CallAlreadyActiveError(message);
-    case "no_active_call":
+    case "noActiveCall":
       return new NoActiveCallError(message);
-    case "call_rejected":
+    case "callRejected":
       return new CallRejectedError(message, question);
-    case "internal_error":
+    case "callNotFound":
+    case "callNotCompleted":
+    case "smsFailed":
+    case "internalError":
     default:
       return new TelloServerError(message);
   }

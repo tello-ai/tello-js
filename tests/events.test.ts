@@ -66,9 +66,9 @@ describe("command frames", () => {
       event: "getSummary",
       data: { callId: "call-1", requestId: "summary-1" },
     });
-    expect(sendSmsFrame("01012345678", "예약 확인", "call-1", "sms-1")).toEqual({
+    expect(sendSmsFrame("01012345678", "예약 확인", "sms-1")).toEqual({
       event: "sendSms",
-      data: { to: "01012345678", message: "예약 확인", callId: "call-1", requestId: "sms-1" },
+      data: { to: "01012345678", message: "예약 확인", requestId: "sms-1" },
     });
   });
 });
@@ -94,13 +94,13 @@ describe("events", () => {
     const event = parseEvent({
       type: "error",
       version: "1.0",
-      code: "call_rejected",
+      code: "callRejected",
       message: "Call rejected",
       requestId: "r1",
       question: "why?",
     });
 
-    expect(event.code).toBe("call_rejected");
+    expect(event.code).toBe("callRejected");
     expect(event.requestId).toBe("r1");
     expect(event.question).toBe("why?");
   });
@@ -181,11 +181,11 @@ describe("events", () => {
     expect(
       isTerminal(
         parseEvent({
-          type: "call.status_changed",
+          type: "call.statusChanged",
           version: "1.0",
           callId: "c1",
           status: "cancelled",
-          previousStatus: "in_progress",
+          previousStatus: "inProgress",
           timestamp: "t",
         }),
       ),

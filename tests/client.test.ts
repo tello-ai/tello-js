@@ -32,7 +32,7 @@ function listen(): Promise<{ url: string; server: WebSocketServer }> {
 const AUTH_OK = JSON.stringify({ type: "auth.ok", version: "1.0" });
 
 describe("TelloClient", () => {
-  it("sends authenticate as the first frame without an Authorization header", async () => {
+  it("sends auth as the first frame without an Authorization header", async () => {
     const { url, server } = await listen();
     const got = new Promise<{ auth: string | undefined; frame: unknown }>((resolve) => {
       server.on("connection", (socket, request) => {
@@ -51,8 +51,8 @@ describe("TelloClient", () => {
     expect(await got).toEqual({
       auth: undefined,
       frame: {
-        event: "authenticate",
-        data: { apiKey: "key-1" },
+        event: "auth",
+        data: { token: "key-1" },
       },
     });
     await client.aclose();
@@ -80,7 +80,7 @@ describe("TelloClient", () => {
       socket.on("message", (raw) => {
         const frame = JSON.parse(raw.toString()) as { event: string };
         frames.push({ event: frame.event, at: Date.now() });
-        if (frame.event === "authenticate") {
+        if (frame.event === "auth") {
           setTimeout(() => {
             authOkSentAt = Date.now();
             socket.send(AUTH_OK);
@@ -93,7 +93,7 @@ describe("TelloClient", () => {
     await client.createCall("+821012345678", "agent-1", "prompt", { src: "test" }, "r1");
     await new Promise((r) => setTimeout(r, 30));
 
-    expect(frames.map((f) => f.event)).toEqual(["authenticate", "createCall"]);
+    expect(frames.map((f) => f.event)).toEqual(["auth", "createCall"]);
     const createCall = frames.find((f) => f.event === "createCall")!;
     expect(createCall.at).toBeGreaterThanOrEqual(authOkSentAt);
     await client.aclose();
@@ -173,7 +173,7 @@ describe("TelloClient", () => {
             JSON.stringify({
               type: "error",
               version: "1.0",
-              code: "call_rejected",
+              code: "callRejected",
               message: "Call rejected",
               question: "why?",
             }),

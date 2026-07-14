@@ -24,8 +24,8 @@ Outbound command frames use `{ event, data }`. Inbound gateway frames are flat a
 ## Authentication
 
 Authentication is handled internally by `connect()` — there is no separate step to call.
-After the WebSocket opens, the client sends an `authenticate` frame carrying your API key
-as its first application frame, and `connect()` only resolves once the server replies with
-`auth.ok`. The API key is never placed in the WebSocket URL, an `Authorization` header, logs,
+After the WebSocket opens, the client sends an `auth` frame (`{ event: "auth", data: { token } }`,
+where `token` is your API key) as its first application frame, and `connect()` only resolves once
+the server replies with `auth.ok`. The API key is never placed in the WebSocket URL, an `Authorization` header, logs,
 or error messages. If the server rejects the key (an `unauthenticated` error or a `4401`
 close) or `auth.ok` does not arrive within `openTimeoutMs`, `connect()` rejects.

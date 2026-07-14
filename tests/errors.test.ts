@@ -3,12 +3,12 @@ import { CallRejectedError, exceptionFor, NoActiveCallError, ValidationError } f
 
 describe("errors", () => {
   it("maps gateway codes to SDK errors", () => {
-    expect(exceptionFor("no_active_call", "No active call")).toBeInstanceOf(NoActiveCallError);
-    expect(exceptionFor("to_required", "to is required")).toBeInstanceOf(ValidationError);
+    expect(exceptionFor("noActiveCall", "No active call")).toBeInstanceOf(NoActiveCallError);
+    expect(exceptionFor("toRequired", "to is required")).toBeInstanceOf(ValidationError);
   });
 
   it("preserves call rejection question", () => {
-    const error = exceptionFor("call_rejected", "Call rejected", "why?");
+    const error = exceptionFor("callRejected", "Call rejected", "why?");
 
     expect(error).toBeInstanceOf(CallRejectedError);
     expect((error as CallRejectedError).question).toBe("why?");

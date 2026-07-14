@@ -3,10 +3,10 @@ export type CommandFrame = {
   data: Record<string, unknown>;
 };
 
-export function authenticateFrame(apiKey: string, requestId?: string): CommandFrame {
-  const data: Record<string, unknown> = { apiKey };
+export function authFrame(token: string, requestId?: string): CommandFrame {
+  const data: Record<string, unknown> = { token };
   if (requestId !== undefined) data.requestId = requestId;
-  return { event: "authenticate", data };
+  return { event: "auth", data };
 }
 
 export function createCallFrame(
@@ -52,9 +52,8 @@ export function getSummaryFrame(callId: string, requestId?: string): CommandFram
   return { event: "getSummary", data };
 }
 
-export function sendSmsFrame(to: string, message: string, callId?: string, requestId?: string): CommandFrame {
+export function sendSmsFrame(to: string, message: string, requestId?: string): CommandFrame {
   const data: Record<string, unknown> = { to, message };
-  if (callId !== undefined) data.callId = callId;
   if (requestId !== undefined) data.requestId = requestId;
   return { event: "sendSms", data };
 }
