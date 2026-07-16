@@ -5,7 +5,6 @@ export const EventType = {
   CallCreated: "call.created",
   UserTurn: "user.turn",
   AgentTurn: "agent.turn",
-  AgentsListed: "agents.listed",
   CallSummary: "call.summary",
   SmsSent: "sms.sent",
   AnswerAccepted: "answer.accepted",
@@ -35,7 +34,6 @@ export type TelloEvent = {
   message?: string;
   requestId?: string;
   question?: string;
-  agents?: AgentInfo[];
   durationSeconds?: number | null;
   transcript?: string | null;
   summary?: string | null;
@@ -43,12 +41,4 @@ export type TelloEvent = {
   smsId?: string;
   to?: string;
   messagePreview?: string;
-};
-
-export type AgentInfo = {
-  agentId: string;
-  name: string;
-  role: string;
-  isDefault: boolean;
-  status: string;
 };

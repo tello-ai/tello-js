@@ -90,7 +90,7 @@ describe("TelloClient", () => {
     });
 
     const client = await new TelloClient({ apiKey: "key-1", url }).connect();
-    await client.createCall("+821012345678", "agent-1", "prompt", { src: "test" }, "r1");
+    await client.createCall("+821012345678", "prompt", { src: "test" }, "r1");
     await new Promise((r) => setTimeout(r, 30));
 
     expect(frames.map((f) => f.event)).toEqual(["auth", "createCall"]);
@@ -114,18 +114,43 @@ describe("TelloClient", () => {
     });
 
     const client = await new TelloClient({ apiKey: "key-1", url }).connect();
-    await client.createCall("+821012345678", "agent-1", "prompt", { src: "test" }, "r1");
+    await client.createCall("+821012345678", "prompt", { src: "test" }, "r1");
 
-    expect(await got).toEqual({
+    const frame = (await got) as { event: string; data: Record<string, unknown> };
+    expect(frame).toEqual({
       event: "createCall",
       data: {
         to: "+821012345678",
-        agentId: "agent-1",
         prompt: "prompt",
         metadata: { src: "test" },
         requestId: "r1",
       },
     });
+    expect("agentId" in frame.data).toBe(false);
+    await client.aclose();
+  });
+
+  it("never puts an agentId key in the createCall data", async () => {
+    const { url, server } = await listen();
+    const got = new Promise<{ event: string; data: Record<string, unknown> }>((resolve) => {
+      server.on("connection", (socket) => {
+        socket.once("message", () => {
+          socket.send(AUTH_OK);
+          socket.once("message", (raw) => {
+            resolve(JSON.parse(raw.toString()));
+            socket.close();
+          });
+        });
+      });
+    });
+
+    const client = await new TelloClient({ apiKey: "key-1", url }).connect();
+    await client.createCall("+821012345678");
+
+    const frame = await got;
+    expect(frame.event).toBe("createCall");
+    expect(Object.keys(frame.data)).not.toContain("agentId");
+    expect(frame.data).toEqual({ to: "+821012345678", prompt: "" });
     await client.aclose();
   });
 
@@ -187,7 +212,7 @@ describe("TelloClient", () => {
     client.on(EventType.UserTurn, (event) => {
       turns.push(event.text ?? "");
     });
-    await client.createCall("+821012345678", "agent-1");
+    await client.createCall("+821012345678");
 
     await expect(client.waitClosed()).rejects.toMatchObject({
       name: "CallRejectedError",
@@ -298,7 +323,7 @@ describe("TelloClient", () => {
 
     const client = await new TelloClient({ apiKey: "key-1", url }).connect();
     await client.connect();
-    await client.createCall("+821012345678", "agent-1");
+    await client.createCall("+821012345678");
 
     await expect(client.waitClosed()).resolves.toBeUndefined();
     await client.aclose();

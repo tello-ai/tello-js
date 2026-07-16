@@ -6,7 +6,6 @@ import {
   EventType,
   getSummaryFrame,
   isTerminal,
-  listAgentsFrame,
   parseEvent,
   sendDtmfFrame,
   sendSmsFrame,
@@ -14,11 +13,10 @@ import {
 
 describe("command frames", () => {
   it("uses Nest websocket envelope and camelCase data", () => {
-    expect(createCallFrame("+821012345678", "agent-1", "hi", { src: "test" }, "r1")).toEqual({
+    expect(createCallFrame("+821012345678", "hi", { src: "test" }, "r1")).toEqual({
       event: "createCall",
       data: {
         to: "+821012345678",
-        agentId: "agent-1",
         prompt: "hi",
         metadata: { src: "test" },
         requestId: "r1",
@@ -26,10 +24,15 @@ describe("command frames", () => {
     });
   });
 
+  it("never includes an agentId key in createCall data", () => {
+    expect("agentId" in createCallFrame("+821012345678", "hi", { src: "test" }, "r1").data).toBe(false);
+    expect("agentId" in createCallFrame("+821012345678").data).toBe(false);
+  });
+
   it("omits optional fields", () => {
-    expect(createCallFrame("+821012345678", "agent-1")).toEqual({
+    expect(createCallFrame("+821012345678")).toEqual({
       event: "createCall",
-      data: { to: "+821012345678", agentId: "agent-1", prompt: "" },
+      data: { to: "+821012345678", prompt: "" },
     });
     expect(answerFrame("yo", "m1")).toEqual({
       event: "answer",
@@ -51,14 +54,6 @@ describe("command frames", () => {
       event: "sendDtmf",
       data: { digits: "5" },
     });
-  });
-
-  it("builds listAgents frames", () => {
-    expect(listAgentsFrame("agents-1")).toEqual({
-      event: "listAgents",
-      data: { requestId: "agents-1" },
-    });
-    expect(listAgentsFrame()).toEqual({ event: "listAgents", data: {} });
   });
 
   it("builds getSummary and sendSms frames", () => {
@@ -103,35 +98,6 @@ describe("events", () => {
     expect(event.code).toBe("callRejected");
     expect(event.requestId).toBe("r1");
     expect(event.question).toBe("why?");
-  });
-
-  it("parses agents.listed frames", () => {
-    const event = parseEvent({
-      type: "agents.listed",
-      version: "1.0",
-      requestId: "agents-1",
-      agents: [
-        {
-          agentId: "agent-1",
-          name: "예약 확인",
-          role: "AI 상담원",
-          isDefault: true,
-          status: "published",
-        },
-      ],
-    });
-
-    expect(event.type).toBe(EventType.AgentsListed);
-    expect(event.requestId).toBe("agents-1");
-    expect(event.agents).toEqual([
-      {
-        agentId: "agent-1",
-        name: "예약 확인",
-        role: "AI 상담원",
-        isDefault: true,
-        status: "published",
-      },
-    ]);
   });
 
   it("parses call.summary and sms.sent frames", () => {

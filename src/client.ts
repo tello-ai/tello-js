@@ -6,7 +6,6 @@ import {
   createCallFrame,
   encode,
   getSummaryFrame,
-  listAgentsFrame,
   sendDtmfFrame,
   sendSmsFrame,
 } from "./commands.js";
@@ -162,7 +161,6 @@ export class TelloClient extends EventEmitter<TelloEvent> {
 
   async createCall(
     to: string,
-    agentId: string,
     prompt = "",
     metadata?: Record<string, unknown>,
     requestId?: string,
@@ -171,7 +169,7 @@ export class TelloClient extends EventEmitter<TelloEvent> {
     this.callDone = deferred();
     this.callError = undefined;
     this.active = true;
-    this.send(encode(createCallFrame(to, agentId, prompt, metadata, requestId)));
+    this.send(encode(createCallFrame(to, prompt, metadata, requestId)));
   }
 
   async answer(text = "", messageId?: string, requestId?: string): Promise<void> {
@@ -184,10 +182,6 @@ export class TelloClient extends EventEmitter<TelloEvent> {
 
   async cancel(): Promise<void> {
     this.send(encode(cancelFrame()));
-  }
-
-  async listAgents(requestId?: string): Promise<void> {
-    this.send(encode(listAgentsFrame(requestId)));
   }
 
   async getSummary(callId: string, requestId?: string): Promise<void> {

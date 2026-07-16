@@ -27,7 +27,6 @@ export function exceptionFor(code: string, message: string, question?: string): 
     case "unauthenticated":
       return new AuthenticationError(message);
     case "toRequired":
-    case "agentIdRequired":
     case "callIdRequired":
     case "smsToRequired":
     case "smsMessageRequired":

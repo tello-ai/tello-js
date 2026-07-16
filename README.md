@@ -15,7 +15,7 @@ client.on(EventType.UserTurn, async (event) => {
   await client.sendDtmf("1234#");
 });
 
-await client.createCall("+821012345678", "agent-1", "reservation check");
+await client.createCall("+821012345678", "reservation check");
 await client.waitClosed();
 ```
 

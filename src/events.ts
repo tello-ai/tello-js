@@ -22,19 +22,6 @@ function optionalStringValue(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function agentsValue(value: unknown): NonNullable<TelloEvent["agents"]> {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row))
-    .map((agent) => ({
-      agentId: stringValue(agent.agentId),
-      name: stringValue(agent.name),
-      role: stringValue(agent.role),
-      isDefault: agent.isDefault === true,
-      status: stringValue(agent.status),
-    }));
-}
-
 export function parseEvent(frame: Record<string, unknown>): TelloEvent {
   const type = stringValue(frame.type);
 
@@ -60,10 +47,7 @@ export function parseEvent(frame: Record<string, unknown>): TelloEvent {
     raw: frame,
   };
 
-  if (type === EventType.AgentsListed) {
-    event.requestId = typeof frame.requestId === "string" ? frame.requestId : undefined;
-    event.agents = agentsValue(frame.agents);
-  } else if (type === EventType.CallSummary) {
+  if (type === EventType.CallSummary) {
     event.requestId = typeof frame.requestId === "string" ? frame.requestId : undefined;
     event.callId = stringValue(frame.callId);
     event.status = stringValue(frame.status);

@@ -11,12 +11,11 @@ export function authFrame(token: string, requestId?: string): CommandFrame {
 
 export function createCallFrame(
   to: string,
-  agentId: string,
   prompt = "",
   metadata?: Record<string, unknown>,
   requestId?: string,
 ): CommandFrame {
-  const data: Record<string, unknown> = { to, agentId, prompt };
+  const data: Record<string, unknown> = { to, prompt };
   if (metadata !== undefined) data.metadata = metadata;
   if (requestId !== undefined) data.requestId = requestId;
   return { event: "createCall", data };
@@ -38,12 +37,6 @@ export function sendDtmfFrame(digits: string, messageId?: string, requestId?: st
 
 export function cancelFrame(): CommandFrame {
   return { event: "cancel", data: {} };
-}
-
-export function listAgentsFrame(requestId?: string): CommandFrame {
-  const data: Record<string, unknown> = {};
-  if (requestId !== undefined) data.requestId = requestId;
-  return { event: "listAgents", data };
 }
 
 export function getSummaryFrame(callId: string, requestId?: string): CommandFrame {
