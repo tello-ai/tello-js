@@ -7,7 +7,6 @@ import {
   encode,
   getSummaryFrame,
   sendDtmfFrame,
-  sendSmsFrame,
 } from "./commands.js";
 import { type ClientConfig, type ClientOptions, resolveConfig } from "./config.js";
 import {
@@ -186,10 +185,6 @@ export class TelloClient extends EventEmitter<TelloEvent> {
 
   async getSummary(callId: string, requestId?: string): Promise<void> {
     this.send(encode(getSummaryFrame(callId, requestId)));
-  }
-
-  async sendSms(to: string, message: string, requestId?: string): Promise<void> {
-    this.send(encode(sendSmsFrame(to, message, requestId)));
   }
 
   private send(payload: string): void {

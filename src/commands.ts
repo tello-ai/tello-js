@@ -45,12 +45,6 @@ export function getSummaryFrame(callId: string, requestId?: string): CommandFram
   return { event: "getSummary", data };
 }
 
-export function sendSmsFrame(to: string, message: string, requestId?: string): CommandFrame {
-  const data: Record<string, unknown> = { to, message };
-  if (requestId !== undefined) data.requestId = requestId;
-  return { event: "sendSms", data };
-}
-
 export function encode(frame: CommandFrame): string {
   return JSON.stringify(frame);
 }

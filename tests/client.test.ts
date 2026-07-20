@@ -154,6 +154,15 @@ describe("TelloClient", () => {
     await client.aclose();
   });
 
+  it("exposes no sendSms method", () => {
+    const client = new TelloClient({ apiKey: "key-1", url: "ws://127.0.0.1:1/sdk" });
+
+    // The gateway dropped the sendSms handler, so such a frame would never be
+    // answered and the caller would block until its own timeout.
+    expect("sendSms" in client).toBe(false);
+    expect((client as unknown as Record<string, unknown>).sendSms).toBeUndefined();
+  });
+
   it("sends sendDtmf frame", async () => {
     const { url, server } = await listen();
     const got = new Promise<unknown>((resolve) => {

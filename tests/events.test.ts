@@ -8,7 +8,6 @@ import {
   isTerminal,
   parseEvent,
   sendDtmfFrame,
-  sendSmsFrame,
 } from "../src/index.js";
 
 describe("command frames", () => {
@@ -56,14 +55,14 @@ describe("command frames", () => {
     });
   });
 
-  it("builds getSummary and sendSms frames", () => {
+  it("builds getSummary frames", () => {
     expect(getSummaryFrame("call-1", "summary-1")).toEqual({
       event: "getSummary",
       data: { callId: "call-1", requestId: "summary-1" },
     });
-    expect(sendSmsFrame("01012345678", "예약 확인", "sms-1")).toEqual({
-      event: "sendSms",
-      data: { to: "01012345678", message: "예약 확인", requestId: "sms-1" },
+    expect(getSummaryFrame("call-1")).toEqual({
+      event: "getSummary",
+      data: { callId: "call-1" },
     });
   });
 });
@@ -100,7 +99,7 @@ describe("events", () => {
     expect(event.question).toBe("why?");
   });
 
-  it("parses call.summary and sms.sent frames", () => {
+  it("parses call.summary frames", () => {
     const summary = parseEvent({
       type: "call.summary",
       version: "1.0",
@@ -116,20 +115,34 @@ describe("events", () => {
     expect(summary.requestId).toBe("summary-1");
     expect(summary.durationSeconds).toBe(42);
     expect(summary.creditCharged).toBe(15);
+  });
 
-    const sms = parseEvent({
+  it("gives a dropped sms.sent frame no special parsing", () => {
+    const event = parseEvent({
       type: "sms.sent",
       version: "1.0",
       requestId: "sms-1",
       smsId: "77",
       status: "queued",
-      to: "01012345678",
-      messagePreview: "예약 확인",
       callId: "call-1",
     });
-    expect(sms.type).toBe(EventType.SmsSent);
-    expect(sms.smsId).toBe("77");
-    expect(sms.callId).toBe("call-1");
+
+    expect(Object.keys(EventType)).not.toContain("SmsSent");
+    expect(Object.values(EventType)).not.toContain("sms.sent");
+    expect(event).toEqual({
+      type: "sms.sent",
+      version: "1.0",
+      callId: "call-1",
+      timestamp: "",
+      raw: {
+        type: "sms.sent",
+        version: "1.0",
+        requestId: "sms-1",
+        smsId: "77",
+        status: "queued",
+        callId: "call-1",
+      },
+    });
   });
 
   it("detects terminal events including cancelled status", () => {

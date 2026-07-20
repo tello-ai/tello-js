@@ -6,7 +6,6 @@ export const EventType = {
   UserTurn: "user.turn",
   AgentTurn: "agent.turn",
   CallSummary: "call.summary",
-  SmsSent: "sms.sent",
   AnswerAccepted: "answer.accepted",
   DtmfAccepted: "dtmf.accepted",
   CallStatusChanged: "call.statusChanged",
@@ -38,7 +37,4 @@ export type TelloEvent = {
   transcript?: string | null;
   summary?: string | null;
   creditCharged?: number | null;
-  smsId?: string;
-  to?: string;
-  messagePreview?: string;
 };

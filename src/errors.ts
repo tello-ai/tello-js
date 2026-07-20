@@ -28,8 +28,6 @@ export function exceptionFor(code: string, message: string, question?: string): 
       return new AuthenticationError(message);
     case "toRequired":
     case "callIdRequired":
-    case "smsToRequired":
-    case "smsMessageRequired":
     case "dtmfDigitsRequired":
     case "dtmfDigitsInvalid":
       return new ValidationError(message);
@@ -41,7 +39,6 @@ export function exceptionFor(code: string, message: string, question?: string): 
       return new CallRejectedError(message, question);
     case "callNotFound":
     case "callNotCompleted":
-    case "smsFailed":
     case "internalError":
     default:
       return new TelloServerError(message);

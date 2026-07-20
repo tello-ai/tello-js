@@ -55,13 +55,6 @@ export function parseEvent(frame: Record<string, unknown>): TelloEvent {
     event.transcript = optionalStringValue(frame.transcript);
     event.summary = optionalStringValue(frame.summary);
     event.creditCharged = optionalNumberValue(frame.creditCharged);
-  } else if (type === EventType.SmsSent) {
-    event.requestId = typeof frame.requestId === "string" ? frame.requestId : undefined;
-    event.smsId = stringValue(frame.smsId);
-    event.status = stringValue(frame.status);
-    event.to = stringValue(frame.to);
-    event.messagePreview = stringValue(frame.messagePreview);
-    event.callId = stringValue(frame.callId);
   } else if (type === EventType.UserTurn || type === EventType.AgentTurn) {
     event.turnIndex = numberValue(frame.turnIndex);
     event.text = stringValue(frame.text);
