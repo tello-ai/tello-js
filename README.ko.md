@@ -1,0 +1,147 @@
+[English](README.md) | **한국어**
+
+# @tello/sdk
+
+Tello `/sdk` 프로토콜용 Node.js WebSocket SDK. SDK가 대화의 두뇌를 맡습니다.
+게이트웨이는 진행 중인 통화에서 상대방이 말한 턴을 실시간으로 넘겨주고,
+핸들러가 만든 답변은 다시 통화로 전달됩니다.
+
+> 저장소: `tello-js` · npm 패키지: `@tello/sdk`
+>
+> 전송 계층은 WebSocket뿐입니다. REST나 webhook은 제공하지 않습니다.
+
+## 1. 설치
+
+```bash
+npm install @tello/sdk
+```
+
+ESM과 CJS 빌드가 타입 선언과 함께 들어 있습니다. 런타임 의존성은 `ws`
+하나뿐입니다.
+
+## 2. API 키
+
+인증은 `connect()`가 내부에서 끝내므로 따로 호출할 단계가 없습니다. WebSocket이
+열리면 첫 애플리케이션 프레임으로 `auth` 프레임
+(`{ event: "auth", data: { token } }`, `token`이 API 키)을 보내고, 서버가
+`auth.ok`로 응답한 뒤에야 `connect()`가 resolve 됩니다. API 키는 WebSocket URL,
+`Authorization` 헤더, 로그, 오류 메시지 어디에도 실리지 않습니다. 서버가 키를
+거부하거나(`unauthenticated` 오류 또는 `4401` 종료) `openTimeoutMs` 안에
+`auth.ok`가 오지 않으면 `connect()`가 reject 됩니다.
+
+`apiKey`와 `url`을 생략하면 `TELLO_API_KEY` / `TELLO_URL`을 읽고, 그것도 없으면
+`ws://localhost:3000/sdk`로 폴백합니다.
+
+## 3. 연결 + 통화 시작
+
+```ts
+import { EventType, TelloClient } from "@tello/sdk";
+
+const client = await new TelloClient({
+  apiKey: process.env.TELLO_API_KEY,
+  url: process.env.TELLO_URL ?? "ws://localhost:3000/sdk",
+}).connect();
+
+client.on(EventType.UserTurn, async (event) => {
+  await client.answer(`heard: ${event.text ?? ""}`);
+  await client.sendDtmf("1234#");
+});
+
+await client.createCall("+821012345678", "예약 확인");
+await client.waitClosed();
+```
+
+내보내는 명령 프레임은 `{ event, data }` 형태입니다. 게이트웨이가 보내는 수신
+프레임은 평평한 구조이고 `type`으로 디스패치됩니다.
+
+## 4. 실시간 턴 이벤트 (pub/sub)
+
+`client.on(type, handler)`으로 이벤트 타입별 구독을 등록합니다. 핸들러는
+동기·비동기 모두 되고 등록 순서대로 await 됩니다. 모든 이벤트는 `TelloEvent`
+객체 하나로 전달되고 채워지는 필드는 타입마다 다릅니다. 디코딩된 원본 프레임은
+언제나 `event.raw`에서 볼 수 있습니다.
+
+| `EventType` | 값 | 채워지는 필드 |
+| --- | --- | --- |
+| `CallCreated` | `call.created` | `callId` |
+| `UserTurn` | `user.turn` | `turnIndex`, `text` |
+| `AgentTurn` | `agent.turn` | `turnIndex`, `text` |
+| `AnswerAccepted` | `answer.accepted` | `callId` (`requestId` / `messageId`는 `raw`에) |
+| `DtmfAccepted` | `dtmf.accepted` | `callId` (`requestId` / `messageId` / `digits`는 `raw`에) |
+| `CallSummary` | `call.summary` | `requestId`, `status`, `durationSeconds`, `transcript`, `summary`, `creditCharged` |
+| `CallStatusChanged` | `call.statusChanged` | `status`, `previousStatus` |
+| `CallCompleted` | `call.completed` | `status` |
+| `CallNoAnswer` | `call.noAnswer` | `status`, `failureReason` |
+| `CallFailed` | `call.failed` | `status`, `failureReason` |
+| `Error` | `error` | `code`, `message`, `requestId`, `question` |
+| `Disconnected` | `disconnected` | SDK 자체 이벤트. WS가 닫힐 때 발생 |
+
+`auth.ok`는 `connect()`가 내부에서 소비하며 밖으로 다시 emit 하지 않습니다.
+구독을 해제할 때는 `client.off(type, handler)`를 씁니다.
+
+## 5. 명령
+
+```ts
+await client.createCall(to, prompt?, metadata?, requestId?);
+await client.answer(text?, messageId?, requestId?);
+await client.sendDtmf(digits, messageId?, requestId?);
+await client.cancel();
+await client.getSummary(callId, requestId?);
+```
+
+`requestId`는 명령과 응답 프레임을 짝지어 주는 값이며, 멱등성 키가 아닙니다.
+
+`await client.waitClosed()`는 통화가 종료 상태(`call.completed` /
+`call.noAnswer` / `call.failed`, 또는 cancelled 상태)에 이르거나 연결이 닫히면
+resolve 됩니다. 소켓을 닫을 때는 `await client.aclose()`를 호출합니다.
+
+## 6. 오류 처리
+
+게이트웨이 오류 프레임은 오류 클래스와 1:1로 대응됩니다. 전부 `TelloError`를
+상속합니다:
+
+| 게이트웨이 `code` | 오류 클래스 |
+| --- | --- |
+| `unauthenticated` | `AuthenticationError` (인증 핸드셰이크. 4401 종료 포함) |
+| `toRequired` | `ValidationError` |
+| `callIdRequired` | `ValidationError` |
+| `dtmfDigitsRequired` | `ValidationError` |
+| `dtmfDigitsInvalid` | `ValidationError` |
+| `callAlreadyActive` | `CallAlreadyActiveError` |
+| `noActiveCall` | `NoActiveCallError` |
+| `callRejected` | `CallRejectedError` (`.question` 포함) |
+| `callNotFound` | `TelloServerError` |
+| `callNotCompleted` | `TelloServerError` |
+| `internalError` | `TelloServerError` |
+
+명령 단위 오류는 소켓을 닫지 않고 `EventType.Error` 구독자에게도 전달됩니다.
+실패한 `createCall`(예: `toRequired`, `callRejected`)이 멈춘 채 남지 않도록,
+`waitClosed()`가 그 오류를 다시 throw 합니다:
+
+- 인증 실패(`unauthenticated` 프레임, 4401 종료, `auth.ok` 타임아웃) → `connect()`가 `AuthenticationError` throw
+- 통화 시작 거부 → 위 표의 대응 오류
+- 통화 도중 연결 끊김 → `ConnectionClosedError`
+- 다른 연결에 세션을 빼앗김(4429 종료) → `SessionReplacedError`
+
+WS 수준 ping heartbeat는 게이트웨이가 주도하고, pong은 `ws`가 알아서 보냅니다.
+재연결이나 세션 재개 프로토콜은 없습니다. 비정상 종료가 나면 재연결이 필요한
+상황으로 보고 통화를 처음부터 다시 시작하세요.
+
+## 7. 예제
+
+바로 실행해 볼 수 있는 프로그램이 [`examples/`](examples/README.ko.md)에
+있습니다:
+
+```bash
+npm run build
+node examples/basic-call.ts      # 연결, 통화 1건, 각 턴에 응답
+node examples/agent-callback.ts  # 전체 수명주기, 이력, cancel, 타입별 오류
+node examples/call-summary.ts    # 게이트로 막아 둔 라이브 시나리오 + call.summary
+```
+
+세 예제 모두 실제 통화를 겁니다. 먼저
+[`examples/README.ko.md`](examples/README.ko.md)를 읽으세요.
+
+## 8. 버전 호환성
+
+`@tello/sdk 0.1.x`는 Tello WS 프로토콜 `1.0`을 구현합니다(`PROTOCOL_VERSION`).
