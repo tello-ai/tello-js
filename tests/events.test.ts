@@ -84,6 +84,53 @@ describe("events", () => {
     expect(event.callId).toBe("c1");
   });
 
+  it("lifts sessionId onto call-stream events", () => {
+    const event = parseEvent({
+      type: "call.created",
+      version: "1.0",
+      sessionId: "s1",
+      callId: "c1",
+      timestamp: "t",
+    });
+
+    expect(event.sessionId).toBe("s1");
+    expect(event.callId).toBe("c1");
+  });
+
+  it("lifts requestId and messageId out of answer.accepted", () => {
+    const event = parseEvent({
+      type: "answer.accepted",
+      version: "1.0",
+      requestId: "r1",
+      sessionId: "s1",
+      callId: "c1",
+      messageId: "m1",
+      timestamp: "t",
+    });
+
+    expect(event.type).toBe(EventType.AnswerAccepted);
+    expect(event.requestId).toBe("r1");
+    expect(event.messageId).toBe("m1");
+    expect(event.sessionId).toBe("s1");
+  });
+
+  it("lifts digits out of dtmf.accepted and leaves requestId undefined when absent", () => {
+    const event = parseEvent({
+      type: "dtmf.accepted",
+      version: "1.0",
+      sessionId: "s1",
+      callId: "c1",
+      messageId: "m1",
+      digits: "1234#",
+      timestamp: "t",
+    });
+
+    expect(event.type).toBe(EventType.DtmfAccepted);
+    expect(event.messageId).toBe("m1");
+    expect(event.digits).toBe("1234#");
+    expect(event.requestId).toBeUndefined();
+  });
+
   it("parses error frames with request id and question", () => {
     const event = parseEvent({
       type: "error",
@@ -132,6 +179,7 @@ describe("events", () => {
     expect(event).toEqual({
       type: "sms.sent",
       version: "1.0",
+      sessionId: "",
       callId: "call-1",
       timestamp: "",
       raw: {

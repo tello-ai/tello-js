@@ -21,10 +21,13 @@ export type EventTypeValue = (typeof EventType)[keyof typeof EventType];
 export type TelloEvent = {
   type: string;
   version: string;
+  sessionId: string;
   callId: string;
   timestamp: string;
   raw: Record<string, unknown>;
   turnIndex?: number;
+  messageId?: string;
+  digits?: string;
   text?: string;
   status?: string;
   previousStatus?: string;

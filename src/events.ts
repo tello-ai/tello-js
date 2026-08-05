@@ -29,6 +29,9 @@ export function parseEvent(frame: Record<string, unknown>): TelloEvent {
     return {
       type,
       version: stringValue(frame.version),
+      // Error frames are command responses, not call-stream events: the gateway
+      // sends no sessionId, callId or timestamp on them.
+      sessionId: "",
       callId: "",
       timestamp: "",
       code: stringValue(frame.code),
@@ -42,6 +45,7 @@ export function parseEvent(frame: Record<string, unknown>): TelloEvent {
   const event: TelloEvent = {
     type,
     version: stringValue(frame.version),
+    sessionId: stringValue(frame.sessionId),
     callId: stringValue(frame.callId),
     timestamp: stringValue(frame.timestamp),
     raw: frame,
@@ -55,6 +59,13 @@ export function parseEvent(frame: Record<string, unknown>): TelloEvent {
     event.transcript = optionalStringValue(frame.transcript);
     event.summary = optionalStringValue(frame.summary);
     event.creditCharged = optionalNumberValue(frame.creditCharged);
+  } else if (type === EventType.AnswerAccepted) {
+    event.requestId = typeof frame.requestId === "string" ? frame.requestId : undefined;
+    event.messageId = stringValue(frame.messageId);
+  } else if (type === EventType.DtmfAccepted) {
+    event.requestId = typeof frame.requestId === "string" ? frame.requestId : undefined;
+    event.messageId = stringValue(frame.messageId);
+    event.digits = stringValue(frame.digits);
   } else if (type === EventType.UserTurn || type === EventType.AgentTurn) {
     event.turnIndex = numberValue(frame.turnIndex);
     event.text = stringValue(frame.text);
