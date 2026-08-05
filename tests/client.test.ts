@@ -268,9 +268,11 @@ describe("TelloClient", () => {
       // Never respond to the authenticate frame.
     });
 
+    // A missing auth.ok is an authentication failure, not a transport one — the
+    // gateway closes with 4401 on its own deadline either way.
     await expect(
       new TelloClient({ apiKey: "key-1", url, openTimeoutMs: 50 }).connect(),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ name: "AuthenticationError" });
   });
 
   it("never includes the api key in a thrown error message", async () => {

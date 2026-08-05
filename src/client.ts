@@ -111,7 +111,10 @@ export class TelloClient extends EventEmitter<TelloEvent> {
     const auth = gate();
     this.pendingAuth = auth;
     const timer = setTimeout(() => {
-      auth.reject(new ConnectionClosedError("timed out waiting for authentication"));
+      // A missing auth.ok is an authentication failure, not a transport one:
+      // the gateway closes with 4401 on its own 10s deadline either way
+      // (docs/protocol/sdk-ws.v1.md §2).
+      auth.reject(new AuthenticationError("timed out waiting for authentication"));
     }, this.config.openTimeoutMs);
     try {
       // The auth frame MUST be the first application frame we send, and
@@ -263,6 +266,7 @@ export class TelloClient extends EventEmitter<TelloEvent> {
     await this.safeEmit(EventType.Disconnected, {
       type: EventType.Disconnected,
       version: "",
+      sessionId: "",
       callId: "",
       timestamp: "",
       raw: {},
