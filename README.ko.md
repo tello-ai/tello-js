@@ -61,13 +61,18 @@ await client.waitClosed();
 객체 하나로 전달되고 채워지는 필드는 타입마다 다릅니다. 디코딩된 원본 프레임은
 언제나 `event.raw`에서 볼 수 있습니다.
 
+통화 스트림 이벤트는 `type`, `version`, `sessionId`, `callId`, `timestamp`를
+공통으로 싣습니다. `call.summary`와 `error`는 스트림 이벤트가 아니라 명령
+응답이라 게이트웨이가 `sessionId`·`timestamp`를 보내지 않고, 두 필드는 빈 값으로
+들어옵니다.
+
 | `EventType` | 값 | 채워지는 필드 |
 | --- | --- | --- |
-| `CallCreated` | `call.created` | `callId` |
+| `CallCreated` | `call.created` | — (공통 필드만) |
 | `UserTurn` | `user.turn` | `turnIndex`, `text` |
 | `AgentTurn` | `agent.turn` | `turnIndex`, `text` |
-| `AnswerAccepted` | `answer.accepted` | `callId` (`requestId` / `messageId`는 `raw`에) |
-| `DtmfAccepted` | `dtmf.accepted` | `callId` (`requestId` / `messageId` / `digits`는 `raw`에) |
+| `AnswerAccepted` | `answer.accepted` | `requestId`, `messageId` |
+| `DtmfAccepted` | `dtmf.accepted` | `requestId`, `messageId`, `digits` |
 | `CallSummary` | `call.summary` | `requestId`, `status`, `durationSeconds`, `transcript`, `summary`, `creditCharged` |
 | `CallStatusChanged` | `call.statusChanged` | `status`, `previousStatus` |
 | `CallCompleted` | `call.completed` | `status` |
@@ -98,7 +103,9 @@ resolve 됩니다. 소켓을 닫을 때는 `await client.aclose()`를 호출합�
 ## 6. 오류 처리
 
 게이트웨이 오류 프레임은 오류 클래스와 1:1로 대응됩니다. 전부 `TelloError`를
-상속합니다:
+상속하고, 게이트웨이 코드를 `.code`에 담고 있습니다. **분기는 `.code`로 하고
+`.message`로는 하지 마세요.** 메시지는 게이트웨이가 다시 쓸 수 있는 표시용
+문자열입니다.
 
 | 게이트웨이 `code` | 오류 클래스 |
 | --- | --- |
@@ -107,12 +114,27 @@ resolve 됩니다. 소켓을 닫을 때는 `await client.aclose()`를 호출합�
 | `callIdRequired` | `ValidationError` |
 | `dtmfDigitsRequired` | `ValidationError` |
 | `dtmfDigitsInvalid` | `ValidationError` |
+| `callNotFound` | `ValidationError` |
+| `callNotCompleted` | `ValidationError` |
 | `callAlreadyActive` | `CallAlreadyActiveError` |
 | `noActiveCall` | `NoActiveCallError` |
 | `callRejected` | `CallRejectedError` (`.question` 포함) |
-| `callNotFound` | `TelloServerError` |
-| `callNotCompleted` | `TelloServerError` |
 | `internalError` | `TelloServerError` |
+
+`createCall`은 통화가 만들어지기 전에 거부될 수도 있습니다. 이 경우
+`call.created`도 `callId`도 과금도 없습니다. 게이트웨이는 재시도하지 않으므로
+재시도 정책은 호출자 몫입니다.
+
+| 게이트웨이 `code` | 오류 클래스 | 대응 |
+| --- | --- | --- |
+| `insufficientCredit` | `CallRefusedError` | 충전을 안내합니다. 재전송해도 소용없습니다 |
+| `concurrentLimitExceeded` | `CallRefusedError` | 자기 통화가 하나 끝나기를 기다렸다가 재시도합니다 |
+| `callerNotVerified` | `CallRefusedError` | 번호 인증을 안내합니다. 재전송해도 소용없습니다 |
+| `noRepresentativeNumber` | `CallRefusedError` | 발신 번호 설정을 안내합니다. 재전송해도 소용없습니다 |
+| `callProviderUnauthorized` | `CallProviderError` | 서비스 장애로 보고합니다. 재전송은 도움이 안 됩니다 |
+| `callProviderDraining` | `CallProviderError` | 나중에 재시도합니다 |
+| `callProviderUnavailable` | `CallProviderError` | 나중에 재시도합니다 |
+| `callSetupFailed` | `CallProviderError` | 실패로 보고합니다 |
 
 명령 단위 오류는 소켓을 닫지 않고 `EventType.Error` 구독자에게도 전달됩니다.
 실패한 `createCall`(예: `toRequired`, `callRejected`)이 멈춘 채 남지 않도록,
@@ -145,3 +167,9 @@ node examples/call-summary.ts    # 게이트로 막아 둔 라이브 시나리�
 ## 8. 버전 호환성
 
 `@tello/sdk 0.1.x`는 Tello WS 프로토콜 `1.0`을 구현합니다(`PROTOCOL_VERSION`).
+
+프레임 계약 전문은 [`docs/protocol/sdk-ws.v1.md`](docs/protocol/sdk-ws.v1.md)에
+있고, [`docs/events/sdk-events.v1.schema.json`](docs/events/sdk-events.v1.schema.json)과
+[`docs/errors/errors.v1.json`](docs/errors/errors.v1.json)이 함께 있습니다. 이
+세 파일은 게이트웨이 구현 옆에 있는 정본에서 복사해 온 생성물입니다. 읽는 건
+여기서, 고치는 건 정본에서 합니다.

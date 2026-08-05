@@ -101,5 +101,6 @@ node examples/call-summary.ts
 안에 통화가 종료 이벤트까지 가지 못하면 `cancel()`을 한 번만 시도하고 오류로
 끝냅니다. completed 이외의 종료 상태에서는 요약 요청을 아예 보내지 않습니다.
 
-`parseEvent`는 아직 `answer.accepted`에서 `requestId`와 `messageId`를 꺼내지
-않습니다. 그래서 예제는 이 값들을 `event.raw`에서 직접 읽습니다.
+`parseEvent`가 `answer.accepted`에서 `requestId`와 `messageId`를 꺼내 주므로,
+예제는 `event.requestId`로 바로 상관관계를 확인합니다. SDK가 노출하지 않는 값이
+필요하면 여전히 `event.raw`에서 원본 프레임을 볼 수 있습니다.

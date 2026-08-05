@@ -155,10 +155,8 @@ async function main(): Promise<void> {
   });
 
   client.on(EventType.AnswerAccepted, (event) => {
-    // parseEvent does not lift requestId / messageId out of answer.accepted
-    // yet, so read them off the raw frame.
-    const requestId = event.raw.requestId;
-    const messageId = event.raw.messageId;
+    const requestId = event.requestId;
+    const messageId = event.messageId;
     if (requestId !== answerRequestId) return;
     if (!callCreated.done()) {
       fail("received answer.accepted before call.created");

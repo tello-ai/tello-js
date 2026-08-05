@@ -102,5 +102,6 @@ terminal event before `LIVE_CALL_TIMEOUT_SECONDS`, the script attempts one
 `cancel()` command and exits with an error. It does not send a summary request
 after any non-completed terminal state.
 
-`parseEvent` does not yet lift `requestId` / `messageId` out of
-`answer.accepted`, so the example reads them from `event.raw`.
+`parseEvent` lifts `requestId` / `messageId` out of `answer.accepted`, so the
+example correlates on `event.requestId` directly. The decoded frame is still
+available on `event.raw` for anything the SDK does not surface.

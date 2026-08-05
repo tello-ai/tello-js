@@ -59,13 +59,18 @@ async and are awaited in registration order. Every event arrives as one
 `TelloEvent` object whose populated fields depend on the type, with the decoded
 frame always available on `event.raw`.
 
+Call-stream events carry `type`, `version`, `sessionId`, `callId` and
+`timestamp`. `call.summary` and `error` are command responses rather than stream
+events, so the gateway sends no `sessionId` or `timestamp` on them and those
+fields arrive empty.
+
 | `EventType` | value | populated fields |
 | --- | --- | --- |
-| `CallCreated` | `call.created` | `callId` |
+| `CallCreated` | `call.created` | — (common fields only) |
 | `UserTurn` | `user.turn` | `turnIndex`, `text` |
 | `AgentTurn` | `agent.turn` | `turnIndex`, `text` |
-| `AnswerAccepted` | `answer.accepted` | `callId` (`requestId` / `messageId` on `raw`) |
-| `DtmfAccepted` | `dtmf.accepted` | `callId` (`requestId` / `messageId` / `digits` on `raw`) |
+| `AnswerAccepted` | `answer.accepted` | `requestId`, `messageId` |
+| `DtmfAccepted` | `dtmf.accepted` | `requestId`, `messageId`, `digits` |
 | `CallSummary` | `call.summary` | `requestId`, `status`, `durationSeconds`, `transcript`, `summary`, `creditCharged` |
 | `CallStatusChanged` | `call.statusChanged` | `status`, `previousStatus` |
 | `CallCompleted` | `call.completed` | `status` |
@@ -96,7 +101,9 @@ the connection closes. `await client.aclose()` closes the socket.
 
 ## 6. Error handling
 
-Gateway error frames map 1:1 to error classes (all extend `TelloError`):
+Gateway error frames map 1:1 to error classes (all extend `TelloError`). Every
+error carries the gateway code on `.code` — branch on that, never on `.message`,
+which is display text the gateway may reword.
 
 | gateway `code` | error |
 | --- | --- |
@@ -105,12 +112,26 @@ Gateway error frames map 1:1 to error classes (all extend `TelloError`):
 | `callIdRequired` | `ValidationError` |
 | `dtmfDigitsRequired` | `ValidationError` |
 | `dtmfDigitsInvalid` | `ValidationError` |
+| `callNotFound` | `ValidationError` |
+| `callNotCompleted` | `ValidationError` |
 | `callAlreadyActive` | `CallAlreadyActiveError` |
 | `noActiveCall` | `NoActiveCallError` |
 | `callRejected` | `CallRejectedError` (with `.question`) |
-| `callNotFound` | `TelloServerError` |
-| `callNotCompleted` | `TelloServerError` |
 | `internalError` | `TelloServerError` |
+
+`createCall` can also be refused before any call exists — no `call.created`, no
+`callId`, no charge. The gateway never retries these; any retry policy is yours.
+
+| gateway `code` | error | what to do |
+| --- | --- | --- |
+| `insufficientCredit` | `CallRefusedError` | tell the user to top up; do not resend |
+| `concurrentLimitExceeded` | `CallRefusedError` | wait for one of your own calls to end, then retry |
+| `callerNotVerified` | `CallRefusedError` | tell the user to verify the number; do not resend |
+| `noRepresentativeNumber` | `CallRefusedError` | tell the user to configure a caller number; do not resend |
+| `callProviderUnauthorized` | `CallProviderError` | service fault; report it, resending never helps |
+| `callProviderDraining` | `CallProviderError` | retry later at your own pace |
+| `callProviderUnavailable` | `CallProviderError` | retry later at your own pace |
+| `callSetupFailed` | `CallProviderError` | surface as a failure and report it |
 
 Command-level errors are also delivered to `EventType.Error` subscribers without
 closing the socket. `waitClosed()` re-throws the relevant error so a failed
@@ -141,3 +162,9 @@ They place real calls. Read [`examples/README.md`](examples/README.md) first.
 ## 8. Version compatibility
 
 `@tello/sdk 0.1.x` implements Tello WS protocol `1.0` (`PROTOCOL_VERSION`).
+
+The full frame contract is in [`docs/protocol/sdk-ws.v1.md`](docs/protocol/sdk-ws.v1.md),
+with [`docs/events/sdk-events.v1.schema.json`](docs/events/sdk-events.v1.schema.json)
+and [`docs/errors/errors.v1.json`](docs/errors/errors.v1.json). Those three files
+are generated copies of the canonical contract that lives beside the gateway
+implementation — read them here, edit them there.
