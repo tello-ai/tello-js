@@ -7,7 +7,7 @@
  *   TELLO_API_KEY=tello_live_xxx TELLO_URL=ws://localhost:3000/sdk \
  *     node examples/basic-call.ts
  */
-import { EventType, TelloClient } from "@tello/sdk";
+import { EventType, TelloClient } from "@tello-ai/sdk";
 
 // Omitting apiKey / url falls back to TELLO_API_KEY / TELLO_URL, then to
 // ws://localhost:3000/sdk.

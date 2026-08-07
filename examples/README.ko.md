@@ -10,7 +10,7 @@
 
 ## 실행 방법
 
-예제는 패키지 이름(`@tello/sdk`)으로 자기 자신을 import 하고, export map을 통해
+예제는 패키지 이름(`@tello-ai/sdk`)으로 자기 자신을 import 하고, export map을 통해
 `dist/`로 해석됩니다. 먼저 한 번 빌드하세요:
 
 ```sh

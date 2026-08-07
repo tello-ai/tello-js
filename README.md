@@ -1,19 +1,19 @@
 **English** | [한국어](README.ko.md)
 
-# @tello/sdk
+# @tello-ai/sdk
 
 Node.js WebSocket SDK for the Tello `/sdk` protocol. The SDK is the
 "conversation brain": the gateway streams each caller turn from a live phone
 call, and your handler's reply is forwarded back into the call.
 
-> repo: `tello-js` · npm package: `@tello/sdk`
+> repo: `tello-js` · npm package: `@tello-ai/sdk`
 >
 > Transport is WebSocket only. There is no REST or webhook surface.
 
 ## 1. Install
 
 ```bash
-npm install @tello/sdk
+npm install @tello-ai/sdk
 ```
 
 ESM and CJS builds ship together with type declarations. The only runtime
@@ -34,7 +34,7 @@ to `ws://localhost:3000/sdk`.
 ## 3. Connect + start a call
 
 ```ts
-import { EventType, TelloClient } from "@tello/sdk";
+import { EventType, TelloClient } from "@tello-ai/sdk";
 
 const client = await new TelloClient({
   apiKey: process.env.TELLO_API_KEY,
@@ -161,7 +161,7 @@ They place real calls. Read [`examples/README.md`](examples/README.md) first.
 
 ## 8. Version compatibility
 
-`@tello/sdk 0.1.x` implements Tello WS protocol `1.0` (`PROTOCOL_VERSION`).
+`@tello-ai/sdk 0.1.x` implements Tello WS protocol `1.0` (`PROTOCOL_VERSION`).
 
 The full frame contract is in [`docs/protocol/sdk-ws.v1.md`](docs/protocol/sdk-ws.v1.md),
 with [`docs/events/sdk-events.v1.schema.json`](docs/events/sdk-events.v1.schema.json)

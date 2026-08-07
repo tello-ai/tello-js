@@ -1,19 +1,19 @@
 [English](README.md) | **한국어**
 
-# @tello/sdk
+# @tello-ai/sdk
 
 Tello `/sdk` 프로토콜용 Node.js WebSocket SDK. SDK가 대화의 두뇌를 맡습니다.
 게이트웨이는 진행 중인 통화에서 상대방이 말한 턴을 실시간으로 넘겨주고,
 핸들러가 만든 답변은 다시 통화로 전달됩니다.
 
-> 저장소: `tello-js` · npm 패키지: `@tello/sdk`
+> 저장소: `tello-js` · npm 패키지: `@tello-ai/sdk`
 >
 > 전송 계층은 WebSocket뿐입니다. REST나 webhook은 제공하지 않습니다.
 
 ## 1. 설치
 
 ```bash
-npm install @tello/sdk
+npm install @tello-ai/sdk
 ```
 
 ESM과 CJS 빌드가 타입 선언과 함께 들어 있습니다. 런타임 의존성은 `ws`
@@ -35,7 +35,7 @@ ESM과 CJS 빌드가 타입 선언과 함께 들어 있습니다. 런타임 의�
 ## 3. 연결 + 통화 시작
 
 ```ts
-import { EventType, TelloClient } from "@tello/sdk";
+import { EventType, TelloClient } from "@tello-ai/sdk";
 
 const client = await new TelloClient({
   apiKey: process.env.TELLO_API_KEY,
@@ -166,7 +166,7 @@ node examples/call-summary.ts    # 게이트로 막아 둔 라이브 시나리�
 
 ## 8. 버전 호환성
 
-`@tello/sdk 0.1.x`는 Tello WS 프로토콜 `1.0`을 구현합니다(`PROTOCOL_VERSION`).
+`@tello-ai/sdk 0.1.x`는 Tello WS 프로토콜 `1.0`을 구현합니다(`PROTOCOL_VERSION`).
 
 프레임 계약 전문은 [`docs/protocol/sdk-ws.v1.md`](docs/protocol/sdk-ws.v1.md)에
 있고, [`docs/events/sdk-events.v1.schema.json`](docs/events/sdk-events.v1.schema.json)과

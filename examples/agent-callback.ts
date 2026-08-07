@@ -22,7 +22,7 @@ import {
   EventType,
   TelloClient,
   TelloError,
-} from "@tello/sdk";
+} from "@tello-ai/sdk";
 
 /** Bounds the demo so it cannot hang forever if the call never terminates. */
 const CALL_TIMEOUT_MS = 120_000;

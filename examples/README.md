@@ -10,7 +10,7 @@
 
 ## Running them
 
-The examples import the package by its own name (`@tello/sdk`), which resolves
+The examples import the package by its own name (`@tello-ai/sdk`), which resolves
 through the package's export map to `dist/`. Build once first:
 
 ```sh

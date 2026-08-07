@@ -5,7 +5,7 @@
  * examples/README.md before running it.
  */
 import { randomUUID } from "node:crypto";
-import { EventType, TelloClient, TelloError, type TelloEvent } from "@tello/sdk";
+import { EventType, TelloClient, TelloError, type TelloEvent } from "@tello-ai/sdk";
 
 type Config = {
   apiKey: string;
