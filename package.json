@@ -1,6 +1,6 @@
 {
   "name": "@tello-ai/sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Tello SDK for Node.js - WebSocket realtime client",
   "license": "Apache-2.0",
   "type": "module",
