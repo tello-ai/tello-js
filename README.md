@@ -93,11 +93,14 @@ await client.getSummary(callId, requestId?);
 ```
 
 `requestId` correlates a command with its response frame; it is not an
-idempotency key.
+idempotency key. `createCall` always carries one: when you omit it, the client
+generates a random UUID, so an error answering that `createCall` can be told
+apart from errors for other commands.
 
 `await client.waitClosed()` resolves when the call reaches a terminal state
 (`call.completed` / `call.noAnswer` / `call.failed`, or a cancelled status) or
-the connection closes. `await client.aclose()` closes the socket.
+the connection closes, and rejects with the error that ended the call (section
+6). `await client.aclose()` closes the socket.
 
 ## 6. Error handling
 
@@ -133,14 +136,23 @@ which is display text the gateway may reword.
 | `callProviderUnavailable` | `CallProviderError` | retry later at your own pace |
 | `callSetupFailed` | `CallProviderError` | surface as a failure and report it |
 
-Command-level errors are also delivered to `EventType.Error` subscribers without
-closing the socket. `waitClosed()` re-throws the relevant error so a failed
-`createCall` (e.g. `toRequired`, `callRejected`) does not hang:
+Every command error is delivered to `EventType.Error` subscribers, and none of
+them closes the socket. `waitClosed()` re-throws only an error that ends the
+call, so a failed `createCall` (e.g. `toRequired`, `callRejected`) does not hang:
 
 - auth failure (`unauthenticated` frame, close 4401, or `auth.ok` timeout) → `AuthenticationError`, thrown from `connect()`
-- a call-start rejection → its mapped error above
+- an error answering the call's `createCall`, matched by its `requestId` → its
+  mapped error above. This covers a call-start rejection, and a call that fails
+  after `call.created` (the gateway cancels it and sends only that error, with
+  no terminal event)
 - the connection dropping mid-call → `ConnectionClosedError`
 - the session being displaced (close 4429) → `SessionReplacedError`
+
+Errors from any other command (`answer`, `sendDtmf`, `getSummary`, `cancel`)
+are delivered only as `EventType.Error` events. The call keeps running, and
+`waitClosed()` keeps waiting for a terminal event or the connection to close.
+A second `createCall` refused with `callAlreadyActive` does not end the call in
+progress either.
 
 The gateway drives a WS-level ping heartbeat; `ws` answers pongs automatically.
 There is no reconnect/resume — treat an abnormal close as reconnect-worthy and

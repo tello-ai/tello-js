@@ -95,10 +95,13 @@ await client.getSummary(callId, requestId?);
 ```
 
 `requestId`는 명령과 응답 프레임을 짝지어 주는 값이며, 멱등성 키가 아닙니다.
+`createCall`에는 항상 실립니다. 생략하면 클라이언트가 무작위 UUID를 만들어
+보내므로, 그 `createCall`에 대한 오류를 다른 명령의 오류와 구분할 수 있습니다.
 
 `await client.waitClosed()`는 통화가 종료 상태(`call.completed` /
 `call.noAnswer` / `call.failed`, 또는 cancelled 상태)에 이르거나 연결이 닫히면
-resolve 됩니다. 소켓을 닫을 때는 `await client.aclose()`를 호출합니다.
+resolve 되고, 통화를 끝낸 오류가 있으면 그 오류로 reject 됩니다(6절). 소켓을
+닫을 때는 `await client.aclose()`를 호출합니다.
 
 ## 6. 오류 처리
 
@@ -136,14 +139,21 @@ resolve 됩니다. 소켓을 닫을 때는 `await client.aclose()`를 호출합�
 | `callProviderUnavailable` | `CallProviderError` | 나중에 재시도합니다 |
 | `callSetupFailed` | `CallProviderError` | 실패로 보고합니다 |
 
-명령 단위 오류는 소켓을 닫지 않고 `EventType.Error` 구독자에게도 전달됩니다.
-실패한 `createCall`(예: `toRequired`, `callRejected`)이 멈춘 채 남지 않도록,
-`waitClosed()`가 그 오류를 다시 throw 합니다:
+명령 오류는 모두 `EventType.Error` 구독자에게 전달되고, 어느 것도 소켓을 닫지
+않습니다. `waitClosed()`는 통화를 끝내는 오류만 다시 throw 하므로, 실패한
+`createCall`(예: `toRequired`, `callRejected`)이 멈춘 채 남지 않습니다:
 
 - 인증 실패(`unauthenticated` 프레임, 4401 종료, `auth.ok` 타임아웃) → `connect()`가 `AuthenticationError` throw
-- 통화 시작 거부 → 위 표의 대응 오류
+- 통화의 `createCall`에 대한 오류(`requestId`로 짝지음) → 위 표의 대응 오류.
+  통화 시작 거부와, `call.created` 뒤에 통화가 실패한 경우(게이트웨이가 통화를
+  취소하고 종료 이벤트 없이 그 오류만 보냄)가 여기에 해당합니다
 - 통화 도중 연결 끊김 → `ConnectionClosedError`
 - 다른 연결에 세션을 빼앗김(4429 종료) → `SessionReplacedError`
+
+그 밖의 명령(`answer`, `sendDtmf`, `getSummary`, `cancel`)에서 난 오류는
+`EventType.Error` 이벤트로만 전달됩니다. 통화는 계속되고, `waitClosed()`는 종료
+이벤트나 연결 종료를 계속 기다립니다. 통화 중에 보낸 두 번째 `createCall`이
+`callAlreadyActive`로 거부돼도 진행 중인 통화는 끝나지 않습니다.
 
 WS 수준 ping heartbeat는 게이트웨이가 주도하고, pong은 `ws`가 알아서 보냅니다.
 재연결이나 세션 재개 프로토콜은 없습니다. 비정상 종료가 나면 재연결이 필요한

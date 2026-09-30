@@ -31,6 +31,74 @@ function listen(): Promise<{ url: string; server: WebSocketServer }> {
 
 const AUTH_OK = JSON.stringify({ type: "auth.ok", version: "1.0" });
 
+type Command = { event: string; data: Record<string, unknown> };
+
+type FakeGateway = {
+  url: string;
+  /** Command frames received after auth, in arrival order. */
+  commands: Command[];
+  /** Sends a server frame to the connected client. */
+  send(frame: Record<string, unknown>): void;
+};
+
+/**
+ * Stands in for the gateway: answers the auth frame with auth.ok, then records
+ * each command and passes it to `onCommand` to reply.
+ */
+async function fakeGateway(
+  onCommand: (command: Command, gateway: FakeGateway) => void = () => {},
+): Promise<FakeGateway> {
+  const { url, server } = await listen();
+  let socket: WebSocket | undefined;
+  const gateway: FakeGateway = {
+    url,
+    commands: [],
+    send: (frame) => socket?.send(JSON.stringify(frame)),
+  };
+  server.on("connection", (connection) => {
+    socket = connection;
+    connection.once("message", () => {
+      connection.send(AUTH_OK);
+      connection.on("message", (raw) => {
+        // The client under test only sends { event, data } command frames.
+        const command = JSON.parse(raw.toString()) as Command;
+        gateway.commands.push(command);
+        onCommand(command, gateway);
+      });
+    });
+  });
+  return gateway;
+}
+
+function callEvent(type: string, fields: Record<string, unknown> = {}): Record<string, unknown> {
+  return { type, version: "1.0", sessionId: "s1", callId: "c1", timestamp: "t", ...fields };
+}
+
+/** Like the gateway, echoes the failed command's requestId only when it carried one. */
+function errorFrame(code: string, requestId: unknown): Record<string, unknown> {
+  return {
+    type: "error",
+    version: "1.0",
+    code,
+    message: code,
+    ...(requestId === undefined ? {} : { requestId }),
+  };
+}
+
+/** Starts waitClosed() without awaiting it; state() is "pending", "resolved" or the thrown error. */
+function startWait(client: TelloClient): { done: Promise<void>; state: () => unknown } {
+  let state: unknown = "pending";
+  const done = client.waitClosed().then(
+    () => {
+      state = "resolved";
+    },
+    (error: unknown) => {
+      state = error;
+    },
+  );
+  return { done, state: () => state };
+}
+
 describe("TelloClient", () => {
   it("sends auth as the first frame without an Authorization header", async () => {
     const { url, server } = await listen();
@@ -150,7 +218,24 @@ describe("TelloClient", () => {
     const frame = await got;
     expect(frame.event).toBe("createCall");
     expect(Object.keys(frame.data)).not.toContain("agentId");
-    expect(frame.data).toEqual({ to: "+821012345678", prompt: "" });
+    expect(frame.data).toEqual({ to: "+821012345678", prompt: "", requestId: expect.any(String) });
+    await client.aclose();
+  });
+
+  it("always puts a requestId on createCall and keeps a caller-supplied one", async () => {
+    const gateway = await fakeGateway();
+    const client = await new TelloClient({ apiKey: "key-1", url: gateway.url }).connect();
+
+    await client.createCall("+821012345678");
+    await client.createCall("+821012345678", "", undefined, "");
+    await client.createCall("+821012345678", "", undefined, "caller-1");
+
+    await expect.poll(() => gateway.commands.length).toBe(3);
+    const [omitted, empty, supplied] = gateway.commands.map((command) => command.data.requestId);
+    expect(omitted).toEqual(expect.stringMatching(/.+/));
+    expect(empty).toEqual(expect.stringMatching(/.+/));
+    expect(empty).not.toBe(omitted);
+    expect(supplied).toBe("caller-1");
     await client.aclose();
   });
 
@@ -192,7 +277,9 @@ describe("TelloClient", () => {
     server.on("connection", (socket) => {
       socket.once("message", () => {
         socket.send(AUTH_OK);
-        socket.once("message", () => {
+        socket.once("message", (raw) => {
+          // The client under test only sends { event, data } command frames.
+          const createCall = JSON.parse(raw.toString()) as Command;
           socket.send(
             JSON.stringify({
               type: "user.turn",
@@ -210,6 +297,8 @@ describe("TelloClient", () => {
               code: "callRejected",
               message: "Call rejected",
               question: "why?",
+              // The gateway echoes the createCall's requestId on its rejection.
+              requestId: createCall.data.requestId,
             }),
           );
         });
@@ -228,6 +317,77 @@ describe("TelloClient", () => {
       question: "why?",
     } satisfies Partial<CallRejectedError>);
     expect(turns).toEqual(["hello"]);
+    await client.aclose();
+  });
+
+  it("keeps waiting through errors from other commands until the call ends", async () => {
+    const gateway = await fakeGateway((command, gateway) => {
+      if (command.event === "createCall") gateway.send(callEvent("call.created"));
+      if (command.event === "sendDtmf") gateway.send(errorFrame("dtmfDigitsInvalid", command.data.requestId));
+      if (command.event === "answer") gateway.send(errorFrame("internalError", command.data.requestId));
+    });
+    const client = await new TelloClient({ apiKey: "key-1", url: gateway.url }).connect();
+    const errors: { code?: string; requestId?: string }[] = [];
+    client.on(EventType.Error, ({ code, requestId }) => {
+      errors.push({ code, requestId });
+    });
+
+    await client.createCall("+821012345678");
+    const wait = startWait(client);
+    await client.sendDtmf("12a", undefined, "dtmf-1");
+    await client.answer("hello"); // no requestId, so its error carries none
+    await expect.poll(() => errors.length).toBe(2);
+
+    expect(errors).toEqual([
+      { code: "dtmfDigitsInvalid", requestId: "dtmf-1" },
+      { code: "internalError", requestId: undefined },
+    ]);
+    expect(wait.state()).toBe("pending");
+
+    gateway.send(callEvent("call.completed", { status: "completed" }));
+    await wait.done;
+    expect(wait.state()).toBe("resolved");
+    await client.aclose();
+  });
+
+  it("ends the wait with the refusal when createCall is refused", async () => {
+    const gateway = await fakeGateway((command, gateway) => {
+      if (command.event === "createCall") {
+        gateway.send(errorFrame("insufficientCredit", command.data.requestId));
+      }
+    });
+    const client = await new TelloClient({ apiKey: "key-1", url: gateway.url }).connect();
+
+    await client.createCall("+821012345678");
+
+    await expect(client.waitClosed()).rejects.toMatchObject({
+      name: "CallRefusedError",
+      code: "insufficientCredit",
+    });
+    await client.aclose();
+  });
+
+  it("ends the wait with the createCall's own error after call.created", async () => {
+    const gateway = await fakeGateway((command, gateway) => {
+      if (command.event === "createCall") gateway.send(callEvent("call.created"));
+      if (command.event === "sendDtmf") gateway.send(errorFrame("dtmfDigitsInvalid", command.data.requestId));
+    });
+    const client = await new TelloClient({ apiKey: "key-1", url: gateway.url }).connect();
+    const errorCodes: (string | undefined)[] = [];
+    client.on(EventType.Error, (event) => {
+      errorCodes.push(event.code);
+    });
+
+    await client.createCall("+821012345678", "", undefined, "call-1");
+    const wait = startWait(client);
+    await client.sendDtmf("12a", undefined, "dtmf-1");
+    await expect.poll(() => errorCodes).toEqual(["dtmfDigitsInvalid"]);
+    // The call stream fails after call.created: the gateway cancels the call and
+    // answers the createCall with this one error, sending no terminal event.
+    gateway.send(errorFrame("internalError", "call-1"));
+    await wait.done;
+
+    expect(wait.state()).toMatchObject({ name: "TelloServerError", code: "internalError" });
     await client.aclose();
   });
 

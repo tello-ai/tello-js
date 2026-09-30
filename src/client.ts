@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import {
   answerFrame,
@@ -22,6 +23,8 @@ import { EventEmitter } from "./realtime.js";
 
 const CLOSE_UNAUTHENTICATED = 4401;
 const CLOSE_SESSION_REPLACED = 4429;
+// Errors that never end the call, even when they answer one of its createCalls:
+// callAlreadyActive refuses a second createCall while the first call goes on.
 const NON_ABORTING_ERROR_CODES = new Set(["noActiveCall", "callAlreadyActive"]);
 
 type Deferred = {
@@ -60,6 +63,11 @@ export class TelloClient extends EventEmitter<TelloEvent> {
   private closed = deferred();
   private closeError?: TelloError;
   private callError?: TelloError;
+  /**
+   * requestIds of the createCall commands sent for the current call. Only an
+   * error frame echoing one of them can end the call (see endsCall).
+   */
+  private callRequestIds = new Set<string>();
   private active = false;
   private authed = false;
   private pendingAuth?: Gate;
@@ -151,6 +159,12 @@ export class TelloClient extends EventEmitter<TelloEvent> {
     });
   }
 
+  /**
+   * Resolves once the call reaches a terminal event or the connection closes.
+   * Rejects with the error that ended it: a connection failure, or an error
+   * answering this call's createCall. Errors from other commands never end the
+   * wait; they reach `EventType.Error` handlers only.
+   */
   async waitClosed(): Promise<void> {
     await Promise.race([this.callDone.promise, this.closed.promise]);
     if (this.closeError) throw this.closeError;
@@ -167,11 +181,18 @@ export class TelloClient extends EventEmitter<TelloEvent> {
     metadata?: Record<string, unknown>,
     requestId?: string,
   ): Promise<void> {
+    // Always correlate: the gateway echoes this id on an error for this
+    // createCall, which is the only command error that ends the call.
+    const id = requestId || randomUUID();
+    // A createCall sent during a call is refused with callAlreadyActive while the
+    // original call continues, so its id joins that call's set.
+    if (!this.active) this.callRequestIds = new Set();
+    this.callRequestIds.add(id);
     this.callGen += 1;
     this.callDone = deferred();
     this.callError = undefined;
     this.active = true;
-    this.send(encode(createCallFrame(to, prompt, metadata, requestId)));
+    this.send(encode(createCallFrame(to, prompt, metadata, id)));
   }
 
   async answer(text = "", messageId?: string, requestId?: string): Promise<void> {
@@ -230,7 +251,7 @@ export class TelloClient extends EventEmitter<TelloEvent> {
       if (event.code === "unauthenticated") {
         this.closeError = error;
         this.pendingAuth?.reject(error);
-      } else if (this.active && !NON_ABORTING_ERROR_CODES.has(event.code ?? "")) {
+      } else if (this.endsCall(event)) {
         this.callError = error;
         this.active = false;
         this.callDone.resolve();
@@ -245,6 +266,21 @@ export class TelloClient extends EventEmitter<TelloEvent> {
       this.active = false;
       this.callDone.resolve();
     }
+  }
+
+  /**
+   * Whether an error frame ends the current call. The gateway echoes the failed
+   * command's requestId on every error frame, and a failed answer, sendDtmf,
+   * getSummary or cancel leaves the call running (docs/protocol/sdk-ws.v1.md
+   * §4, §6), so only an error answering one of this call's createCalls counts.
+   */
+  private endsCall(event: TelloEvent): boolean {
+    return (
+      this.active &&
+      event.requestId !== undefined &&
+      this.callRequestIds.has(event.requestId) &&
+      !NON_ABORTING_ERROR_CODES.has(event.code ?? "")
+    );
   }
 
   private async finish(gen: number, code: number, reason: string): Promise<void> {
