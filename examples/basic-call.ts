@@ -10,7 +10,7 @@
 import { EventType, TelloClient } from "@tello-ai/sdk";
 
 // Omitting apiKey / url falls back to TELLO_API_KEY / TELLO_URL, then to
-// ws://localhost:3000/sdk.
+// wss://api.telloai.io/sdk. This example falls back to a local gateway instead.
 const client = new TelloClient({
   apiKey: process.env.TELLO_API_KEY ?? "tello_live_xxx",
   url: process.env.TELLO_URL ?? "ws://localhost:3000/sdk",

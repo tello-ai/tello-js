@@ -1,4 +1,4 @@
-export const DEFAULT_URL = "ws://localhost:3000/sdk";
+export const DEFAULT_URL = "wss://api.telloai.io/sdk";
 export const ENV_API_KEY = "TELLO_API_KEY";
 export const ENV_URL = "TELLO_URL";
 

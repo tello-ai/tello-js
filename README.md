@@ -29,7 +29,7 @@ or error messages. If the server rejects the key (an `unauthenticated` error or 
 close) or `auth.ok` does not arrive within `openTimeoutMs`, `connect()` rejects.
 
 Omitting `apiKey` / `url` falls back to `TELLO_API_KEY` / `TELLO_URL`, and then
-to `ws://localhost:3000/sdk`.
+to `wss://api.telloai.io/sdk`.
 
 ## 3. Connect + start a call
 
@@ -38,7 +38,7 @@ import { EventType, TelloClient } from "@tello-ai/sdk";
 
 const client = await new TelloClient({
   apiKey: process.env.TELLO_API_KEY,
-  url: process.env.TELLO_URL ?? "ws://localhost:3000/sdk",
+  url: process.env.TELLO_URL ?? "wss://api.telloai.io/sdk",
 }).connect();
 
 client.on(EventType.UserTurn, async (event) => {

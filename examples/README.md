@@ -61,7 +61,9 @@ set +a
 ## Shared configuration
 
 `basic-call.ts` and `agent-callback.ts` need only `TELLO_API_KEY` and
-`TELLO_URL` (`TELLO_URL` defaults to `ws://localhost:3000/sdk`):
+`TELLO_URL`. When `TELLO_URL` is unset, these two examples connect to a local
+gateway at `ws://localhost:3000/sdk` instead of the SDK default
+`wss://api.telloai.io/sdk`:
 
 ```sh
 TELLO_API_KEY=tello_live_xxx TELLO_URL=ws://localhost:3000/sdk \

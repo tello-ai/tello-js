@@ -30,7 +30,7 @@ ESM과 CJS 빌드가 타입 선언과 함께 들어 있습니다. 런타임 의�
 `auth.ok`가 오지 않으면 `connect()`가 reject 됩니다.
 
 `apiKey`와 `url`을 생략하면 `TELLO_API_KEY` / `TELLO_URL`을 읽고, 그것도 없으면
-`ws://localhost:3000/sdk`로 폴백합니다.
+`wss://api.telloai.io/sdk`로 폴백합니다.
 
 ## 3. 연결 + 통화 시작
 
@@ -39,7 +39,7 @@ import { EventType, TelloClient } from "@tello-ai/sdk";
 
 const client = await new TelloClient({
   apiKey: process.env.TELLO_API_KEY,
-  url: process.env.TELLO_URL ?? "ws://localhost:3000/sdk",
+  url: process.env.TELLO_URL ?? "wss://api.telloai.io/sdk",
 }).connect();
 
 client.on(EventType.UserTurn, async (event) => {
