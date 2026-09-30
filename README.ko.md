@@ -97,11 +97,18 @@ await client.getSummary(callId, requestId?);
 `requestId`는 명령과 응답 프레임을 짝지어 주는 값이며, 멱등성 키가 아닙니다.
 `createCall`에는 항상 실립니다. 생략하면 클라이언트가 무작위 UUID를 만들어
 보내므로, 그 `createCall`에 대한 오류를 다른 명령의 오류와 구분할 수 있습니다.
+명령마다 `requestId`를 따로 주고, `createCall`의 `requestId`를 다른 명령에 다시
+쓰지 마세요. 그 값을 에코한 오류는 통화 대기를 끝냅니다.
 
 `await client.waitClosed()`는 통화가 종료 상태(`call.completed` /
-`call.noAnswer` / `call.failed`, 또는 cancelled 상태)에 이르거나 연결이 닫히면
-resolve 되고, 통화를 끝낸 오류가 있으면 그 오류로 reject 됩니다(6절). 소켓을
-닫을 때는 `await client.aclose()`를 호출합니다.
+`call.noAnswer` / `call.failed`, 또는 status가 `cancelled`인
+`call.statusChanged`)에 이르거나 연결이 닫히면 resolve 되고, 통화를 끝낸 오류가
+있으면 그 오류로 reject 됩니다(6절). 진행 중인 대기는 그사이 핸들러가 후속
+통화를 시작해도 자기 통화가 끝날 때 반환됩니다. 후속 통화는 `waitClosed()`를
+다시 호출해 기다리세요. 소켓을 닫을 때는 `await client.aclose()`를 호출합니다.
+
+`cancel()`을 보내면 게이트웨이가 status가 `cancelled`인 `call.statusChanged`를
+통화의 종료 이벤트로 보내므로 대기가 끝납니다.
 
 ## 6. 오류 처리
 
@@ -146,14 +153,38 @@ resolve 되고, 통화를 끝낸 오류가 있으면 그 오류로 reject 됩니
 - 인증 실패(`unauthenticated` 프레임, 4401 종료, `auth.ok` 타임아웃) → `connect()`가 `AuthenticationError` throw
 - 통화의 `createCall`에 대한 오류(`requestId`로 짝지음) → 위 표의 대응 오류.
   통화 시작 거부와, `call.created` 뒤에 통화가 실패한 경우(게이트웨이가 통화를
-  취소하고 종료 이벤트 없이 그 오류만 보냄)가 여기에 해당합니다
+  취소하고 종료 이벤트 없이 그 오류만 보냄)가 여기에 해당합니다. 예외가 두
+  가지 있습니다. `noActiveCall`은 대기를 끝내지 않고, `callAlreadyActive`는
+  통화를 연 `createCall`에 대한 응답일 때만 끝냅니다(아래 참고)
 - 통화 도중 연결 끊김 → `ConnectionClosedError`
 - 다른 연결에 세션을 빼앗김(4429 종료) → `SessionReplacedError`
 
+통화를 연 `createCall`에 `callAlreadyActive`가 오면 게이트웨이가 직전 통화를
+아직 정리하고 있다는 뜻입니다. 게이트웨이는 직전 통화의 종료 이벤트를 보낸 뒤
+짧은 정리 구간 동안 세션을 붙잡고 있습니다. 새 통화는 시작되지
+않았으므로(`call.created` 없음) `waitClosed()`가 `CallAlreadyActiveError`로
+reject 됩니다. 잠시 뒤 `createCall`을 다시 보내세요. 통화가 진행 중일 때 보낸
+`createCall`도 `callAlreadyActive`로 거부되지만, 이건 `EventType.Error`
+이벤트일 뿐이고 진행 중인 통화는 계속됩니다.
+
 그 밖의 명령(`answer`, `sendDtmf`, `getSummary`, `cancel`)에서 난 오류는
 `EventType.Error` 이벤트로만 전달됩니다. 통화는 계속되고, `waitClosed()`는 종료
-이벤트나 연결 종료를 계속 기다립니다. 통화 중에 보낸 두 번째 `createCall`이
-`callAlreadyActive`로 거부돼도 진행 중인 통화는 끝나지 않습니다.
+이벤트나 연결 종료를 계속 기다립니다.
+
+`EventType.Error` 핸들러가 받는 것은 오류 객체가 아니라 이벤트입니다.
+`exceptionFor(code, message, question?)`가 이 이벤트를 `waitClosed()`가 throw
+하는 것과 같은 타입의 오류로 바꿔 줍니다:
+
+```ts
+import { EventType, exceptionFor, ValidationError } from "@tello-ai/sdk";
+
+client.on(EventType.Error, (event) => {
+  const error = exceptionFor(event.code ?? "", event.message ?? "", event.question);
+  if (error instanceof ValidationError) {
+    console.warn(`command ${event.requestId} rejected: ${error.code}`);
+  }
+});
+```
 
 WS 수준 ping heartbeat는 게이트웨이가 주도하고, pong은 `ws`가 알아서 보냅니다.
 재연결이나 세션 재개 프로토콜은 없습니다. 비정상 종료가 나면 재연결이 필요한

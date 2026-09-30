@@ -95,12 +95,20 @@ await client.getSummary(callId, requestId?);
 `requestId` correlates a command with its response frame; it is not an
 idempotency key. `createCall` always carries one: when you omit it, the client
 generates a random UUID, so an error answering that `createCall` can be told
-apart from errors for other commands.
+apart from errors for other commands. Give each command its own `requestId`,
+and never reuse a `createCall`'s on another command: an error echoing it ends
+the wait for the call.
 
 `await client.waitClosed()` resolves when the call reaches a terminal state
-(`call.completed` / `call.noAnswer` / `call.failed`, or a cancelled status) or
-the connection closes, and rejects with the error that ended the call (section
-6). `await client.aclose()` closes the socket.
+(`call.completed` / `call.noAnswer` / `call.failed`, or `call.statusChanged`
+with status `cancelled`) or the connection closes, and rejects with the error
+that ended the call (section 6). A wait in progress returns when its own call
+ends, even if a handler starts a follow-up call in the meantime; call
+`waitClosed()` again to wait for the follow-up. `await client.aclose()` closes
+the socket.
+
+After `cancel()`, the gateway sends `call.statusChanged` with status
+`cancelled` as the call's terminal event, so the wait resolves.
 
 ## 6. Error handling
 
@@ -144,15 +152,38 @@ call, so a failed `createCall` (e.g. `toRequired`, `callRejected`) does not hang
 - an error answering the call's `createCall`, matched by its `requestId` → its
   mapped error above. This covers a call-start rejection, and a call that fails
   after `call.created` (the gateway cancels it and sends only that error, with
-  no terminal event)
+  no terminal event). Two codes are exceptions: `noActiveCall` never ends the
+  wait, and `callAlreadyActive` ends it only when it answers the `createCall`
+  that opened the call (see below)
 - the connection dropping mid-call → `ConnectionClosedError`
 - the session being displaced (close 4429) → `SessionReplacedError`
+
+`callAlreadyActive` answering the `createCall` that opened the call means the
+gateway is still finishing your previous call: it holds the session for a short
+cleanup window after that call's terminal event. The new call never started (no
+`call.created`), so `waitClosed()` rejects with `CallAlreadyActiveError`; send
+the `createCall` again shortly. A `createCall` sent while a call is in progress
+is refused with `callAlreadyActive` too, but that is only an `EventType.Error`
+event and the call in progress goes on.
 
 Errors from any other command (`answer`, `sendDtmf`, `getSummary`, `cancel`)
 are delivered only as `EventType.Error` events. The call keeps running, and
 `waitClosed()` keeps waiting for a terminal event or the connection to close.
-A second `createCall` refused with `callAlreadyActive` does not end the call in
-progress either.
+
+An `EventType.Error` handler receives the event, not an error object.
+`exceptionFor(code, message, question?)` turns it into the same typed error
+`waitClosed()` throws:
+
+```ts
+import { EventType, exceptionFor, ValidationError } from "@tello-ai/sdk";
+
+client.on(EventType.Error, (event) => {
+  const error = exceptionFor(event.code ?? "", event.message ?? "", event.question);
+  if (error instanceof ValidationError) {
+    console.warn(`command ${event.requestId} rejected: ${error.code}`);
+  }
+});
+```
 
 The gateway drives a WS-level ping heartbeat; `ws` answers pongs automatically.
 There is no reconnect/resume — treat an abnormal close as reconnect-worthy and
