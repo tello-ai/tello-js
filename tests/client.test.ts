@@ -39,11 +39,15 @@ type FakeGateway = {
   commands: Command[];
   /** Sends a server frame to the connected client. */
   send(frame: Record<string, unknown>): void;
+  /** Drops the current connection without a close frame, like a network failure. */
+  drop(): void;
 };
 
 /**
  * Stands in for the gateway: answers the auth frame with auth.ok, then records
- * each command and passes it to `onCommand` to reply.
+ * each command and passes it to `onCommand` to reply. Like the gateway, it
+ * answers `cancel` with the cancelled call.statusChanged that ends the call
+ * (docs/protocol/sdk-ws.v1.md §4.4).
  */
 async function fakeGateway(
   onCommand: (command: Command, gateway: FakeGateway) => void = () => {},
@@ -54,6 +58,7 @@ async function fakeGateway(
     url,
     commands: [],
     send: (frame) => socket?.send(JSON.stringify(frame)),
+    drop: () => socket?.terminate(),
   };
   server.on("connection", (connection) => {
     socket = connection;
@@ -63,6 +68,9 @@ async function fakeGateway(
         // The client under test only sends { event, data } command frames.
         const command = JSON.parse(raw.toString()) as Command;
         gateway.commands.push(command);
+        if (command.event === "cancel") {
+          gateway.send(callEvent("call.statusChanged", { status: "cancelled", previousStatus: "inProgress" }));
+        }
         onCommand(command, gateway);
       });
     });
@@ -389,6 +397,154 @@ describe("TelloClient", () => {
 
     expect(wait.state()).toMatchObject({ name: "TelloServerError", code: "internalError" });
     await client.aclose();
+  });
+
+  it("ends the wait when callAlreadyActive answers the createCall that opened the call", async () => {
+    // The gateway still holds the previous call while it cleans up
+    // (docs/protocol/sdk-ws.v1.md §4.1): it refuses "a" with no call.created,
+    // then accepts the retry.
+    const gateway = await fakeGateway((command, gateway) => {
+      if (command.event !== "createCall") return;
+      if (command.data.requestId === "a") gateway.send(errorFrame("callAlreadyActive", "a"));
+      else gateway.send(callEvent("call.created"));
+    });
+    const client = await new TelloClient({ apiKey: "key-1", url: gateway.url }).connect();
+
+    await client.createCall("+821012345678", "", undefined, "a");
+    const refused = startWait(client);
+    await expect.poll(refused.state).toMatchObject({ name: "CallAlreadyActiveError", code: "callAlreadyActive" });
+
+    await client.createCall("+821012345678", "", undefined, "b");
+    const retried = startWait(client);
+    await expect.poll(() => gateway.commands.length).toBe(2);
+    gateway.send(callEvent("call.completed", { status: "completed" }));
+    await expect.poll(retried.state).toBe("resolved");
+    await client.aclose();
+  });
+
+  it("keeps waiting when a createCall sent during the call is refused", async () => {
+    const gateway = await fakeGateway((command, gateway) => {
+      if (command.event !== "createCall") return;
+      if (command.data.requestId === "a") gateway.send(callEvent("call.created"));
+      else gateway.send(errorFrame("callAlreadyActive", command.data.requestId));
+    });
+    const client = await new TelloClient({ apiKey: "key-1", url: gateway.url }).connect();
+    const seen: (string | undefined)[] = [];
+    client.on(EventType.CallCreated, (event) => {
+      seen.push(event.type);
+    });
+    client.on(EventType.Error, (event) => {
+      seen.push(event.code);
+    });
+
+    await client.createCall("+821012345678", "", undefined, "a");
+    await expect.poll(() => seen).toEqual(["call.created"]);
+    const wait = startWait(client);
+    await client.createCall("+821012345678", "", undefined, "b");
+    await expect.poll(() => seen).toEqual(["call.created", "callAlreadyActive"]);
+    expect(wait.state()).toBe("pending");
+
+    // The call stream fails: the gateway answers the opening createCall with
+    // this one error and sends no terminal event.
+    gateway.send(errorFrame("internalError", "a"));
+    await expect.poll(wait.state).toMatchObject({ name: "TelloServerError", code: "internalError" });
+    await client.aclose();
+  });
+
+  it("returns a wait at its own call's end when a handler starts the next call", async () => {
+    const gateway = await fakeGateway((command, gateway) => {
+      if (command.event === "createCall") gateway.send(callEvent("call.created"));
+    });
+    const client = await new TelloClient({ apiKey: "key-1", url: gateway.url }).connect();
+    const errorCodes: (string | undefined)[] = [];
+    client.on(EventType.Error, (event) => {
+      errorCodes.push(event.code);
+    });
+    const startNextCall = async () => {
+      client.off(EventType.CallCompleted, startNextCall);
+      await client.createCall("+821012345678", "", undefined, "b");
+    };
+    client.on(EventType.CallCompleted, startNextCall);
+
+    await client.createCall("+821012345678", "", undefined, "a");
+    const first = startWait(client);
+    gateway.send(callEvent("call.completed", { status: "completed" }));
+    await expect.poll(first.state).toBe("resolved");
+    await expect.poll(() => gateway.commands.map((command) => command.data.requestId)).toEqual(["a", "b"]);
+
+    const second = startWait(client);
+    gateway.send(errorFrame("internalError", "a"));
+    await expect.poll(() => errorCodes).toEqual(["internalError"]);
+    expect(second.state()).toBe("pending");
+
+    await client.cancel();
+    await expect.poll(second.state).toBe("resolved");
+    await client.aclose();
+  });
+
+  it("keeps a dropped connection's call out of the next connection", async () => {
+    const gateway = await fakeGateway((command, gateway) => {
+      if (command.event === "createCall") gateway.send(callEvent("call.created"));
+    });
+    const client = await new TelloClient({ apiKey: "key-1", url: gateway.url }).connect();
+
+    await client.createCall("+821012345678", "", undefined, "a");
+    const dropped = startWait(client);
+    await expect.poll(() => gateway.commands.length).toBe(1);
+    gateway.drop();
+    await expect.poll(dropped.state).toMatchObject({ name: "ConnectionClosedError" });
+
+    await client.connect();
+    const errorCodes: (string | undefined)[] = [];
+    client.on(EventType.Error, (event) => {
+      errorCodes.push(event.code);
+    });
+    await client.createCall("+821012345678", "", undefined, "c");
+    const wait = startWait(client);
+    await expect.poll(() => gateway.commands.length).toBe(2);
+    gateway.send(errorFrame("internalError", "a"));
+    await expect.poll(() => errorCodes).toEqual(["internalError"]);
+    expect(wait.state()).toBe("pending");
+
+    gateway.send(callEvent("call.completed", { status: "completed" }));
+    await expect.poll(wait.state).toBe("resolved");
+    await client.aclose();
+  });
+
+  it("ends a call still in progress when connect() opens a new connection", async () => {
+    const gateway = await fakeGateway((command, gateway) => {
+      if (command.event === "createCall") gateway.send(callEvent("call.created"));
+    });
+    const client = await new TelloClient({ apiKey: "key-1", url: gateway.url }).connect();
+
+    await client.createCall("+821012345678", "", undefined, "a");
+    const abandoned = startWait(client);
+    await client.connect();
+    await expect.poll(abandoned.state).toMatchObject({ name: "ConnectionClosedError" });
+
+    const errorCodes: (string | undefined)[] = [];
+    client.on(EventType.Error, (event) => {
+      errorCodes.push(event.code);
+    });
+    await client.createCall("+821012345678", "", undefined, "c");
+    const wait = startWait(client);
+    gateway.send(errorFrame("internalError", "a"));
+    await expect.poll(() => errorCodes).toEqual(["internalError"]);
+    expect(wait.state()).toBe("pending");
+
+    gateway.send(callEvent("call.completed", { status: "completed" }));
+    await expect.poll(wait.state).toBe("resolved");
+    await client.aclose();
+  });
+
+  it("settles the wait when createCall cannot be sent", async () => {
+    const gateway = await fakeGateway();
+    const client = await new TelloClient({ apiKey: "key-1", url: gateway.url }).connect();
+    await client.aclose();
+
+    await expect(client.createCall("+821012345678")).rejects.toMatchObject({ name: "ConnectionClosedError" });
+    const wait = startWait(client);
+    await expect.poll(wait.state).toMatchObject({ name: "ConnectionClosedError" });
   });
 
   it("rejects connect on an unauthenticated error frame", async () => {

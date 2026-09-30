@@ -23,9 +23,6 @@ import { EventEmitter } from "./realtime.js";
 
 const CLOSE_UNAUTHENTICATED = 4401;
 const CLOSE_SESSION_REPLACED = 4429;
-// Errors that never end the call, even when they answer one of its createCalls:
-// callAlreadyActive refuses a second createCall while the first call goes on.
-const NON_ABORTING_ERROR_CODES = new Set(["noActiveCall", "callAlreadyActive"]);
 
 type Deferred = {
   promise: Promise<void>;
@@ -56,22 +53,39 @@ function gate(): Gate {
   return { promise, resolve, reject };
 }
 
+/**
+ * One call as the client sees it. A createCall sent while no call is in
+ * progress opens it; a terminal event, an error answering one of its
+ * createCalls, or the connection closing ends it.
+ */
+type Call = {
+  /**
+   * requestIds of the createCalls sent while this call was in progress: the
+   * one that opened it, and any sent during it (the gateway refuses those with
+   * callAlreadyActive). Only an error echoing one of them can end the call.
+   */
+  readonly requestIds: Set<string>;
+  /** requestId of the createCall that opened this call. */
+  readonly openingId: string;
+  /** Resolves once the call has ended; `error` then holds its outcome. */
+  readonly ended: Deferred;
+  /** What ended the call, unless a terminal event did. */
+  error?: TelloError;
+  /** Whether waitClosed() has thrown `error` yet. */
+  surfaced: boolean;
+};
+
 export class TelloClient extends EventEmitter<TelloEvent> {
   private readonly config: ClientConfig;
   private ws?: WebSocket;
-  private callDone = deferred();
   private closed = deferred();
   private closeError?: TelloError;
-  private callError?: TelloError;
-  /**
-   * requestIds of the createCall commands sent for the current call. Only an
-   * error frame echoing one of them can end the call (see endsCall).
-   */
-  private callRequestIds = new Set<string>();
+  /** The call in progress, or else the last one to end on this connection. */
+  private call?: Call;
+  /** Whether `call` is still in progress. */
   private active = false;
   private authed = false;
   private pendingAuth?: Gate;
-  private callGen = 0;
   private socketGen = 0;
 
   constructor(options: ClientOptions = {}) {
@@ -80,10 +94,13 @@ export class TelloClient extends EventEmitter<TelloEvent> {
   }
 
   async connect(): Promise<this> {
-    this.callDone = deferred();
+    // From here on the previous connection's frames are dropped, so a call still
+    // in progress there could never end: end it rather than strand its waiters,
+    // and start the new connection with no call.
+    this.endCall(new ConnectionClosedError("reconnected before call terminated"));
+    this.call = undefined;
     this.closed = deferred();
     this.closeError = undefined;
-    this.callError = undefined;
     this.authed = false;
     // No Authorization header and no query token: the API key is sent only in
     // the first application frame after the socket opens (see authenticate()).
@@ -160,18 +177,33 @@ export class TelloClient extends EventEmitter<TelloEvent> {
   }
 
   /**
-   * Resolves once the call reaches a terminal event or the connection closes.
-   * Rejects with the error that ended it: a connection failure, or an error
-   * answering this call's createCall. Errors from other commands never end the
-   * wait; they reach `EventType.Error` handlers only.
+   * Resolves once the call in progress reaches a terminal event, or rejects
+   * with the error that ended it: a connection failure, or an error answering
+   * one of its createCalls. It waits for that call only, even when a handler
+   * starts the next one; call waitClosed() again to wait for that. Errors from
+   * other commands never end the wait; they reach `EventType.Error` handlers
+   * only.
+   *
+   * With no call in progress it settles at once with the outcome of the last
+   * call on this connection, throwing that call's error only once, or waits
+   * for the connection to close if it has had no call yet.
    */
   async waitClosed(): Promise<void> {
-    await Promise.race([this.callDone.promise, this.closed.promise]);
+    const call = this.active ? this.call : undefined;
+    if (call) {
+      await call.ended.promise;
+      if (call.error) {
+        call.surfaced = true;
+        throw call.error;
+      }
+      return;
+    }
+    if (!this.call) await this.closed.promise;
     if (this.closeError) throw this.closeError;
-    if (this.callError) {
-      const error = this.callError;
-      this.callError = undefined;
-      throw error;
+    const last = this.call;
+    if (last?.error && !last.surfaced) {
+      last.surfaced = true;
+      throw last.error;
     }
   }
 
@@ -181,18 +213,26 @@ export class TelloClient extends EventEmitter<TelloEvent> {
     metadata?: Record<string, unknown>,
     requestId?: string,
   ): Promise<void> {
-    // Always correlate: the gateway echoes this id on an error for this
-    // createCall, which is the only command error that ends the call.
+    // Always correlate: the gateway echoes this id on an error answering this
+    // createCall, which is the only command error that can end the call.
     const id = requestId || randomUUID();
-    // A createCall sent during a call is refused with callAlreadyActive while the
-    // original call continues, so its id joins that call's set.
-    if (!this.active) this.callRequestIds = new Set();
-    this.callRequestIds.add(id);
-    this.callGen += 1;
-    this.callDone = deferred();
-    this.callError = undefined;
-    this.active = true;
-    this.send(encode(createCallFrame(to, prompt, metadata, id)));
+    const frame = encode(createCallFrame(to, prompt, metadata, id));
+    const current = this.active ? this.call : undefined;
+    if (current) {
+      // The gateway refuses a createCall sent during a call with
+      // callAlreadyActive while that call goes on, so its id joins that call.
+      current.requestIds.add(id);
+    } else {
+      this.call = { requestIds: new Set([id]), openingId: id, ended: deferred(), surfaced: false };
+      this.active = true;
+    }
+    try {
+      this.send(frame);
+    } catch (error) {
+      // The call this createCall opened never started.
+      if (!current) this.endCall(error as TelloError);
+      throw error;
+    }
   }
 
   async answer(text = "", messageId?: string, requestId?: string): Promise<void> {
@@ -252,35 +292,46 @@ export class TelloClient extends EventEmitter<TelloEvent> {
         this.closeError = error;
         this.pendingAuth?.reject(error);
       } else if (this.endsCall(event)) {
-        this.callError = error;
-        this.active = false;
-        this.callDone.resolve();
+        this.endCall(error);
       }
       await this.safeEmit(EventType.Error, event);
       return;
     }
 
-    const callGen = this.callGen;
+    if (isTerminal(event)) this.endCall();
     await this.safeEmit(event.type, event);
-    if (isTerminal(event) && this.callGen === callGen) {
-      this.active = false;
-      this.callDone.resolve();
-    }
   }
 
   /**
-   * Whether an error frame ends the current call. The gateway echoes the failed
-   * command's requestId on every error frame, and a failed answer, sendDtmf,
-   * getSummary or cancel leaves the call running (docs/protocol/sdk-ws.v1.md
-   * §4, §6), so only an error answering one of this call's createCalls counts.
+   * Whether an error frame ends the call in progress. The gateway echoes the
+   * failed command's requestId on every error frame, and a failed answer,
+   * sendDtmf, getSummary or cancel leaves the call running
+   * (docs/protocol/sdk-ws.v1.md §4, §6), so only an error answering one of
+   * this call's createCalls counts, and never noActiveCall. callAlreadyActive
+   * counts only when it answers the createCall that opened the call: the
+   * gateway was still finishing the previous call (§4.1), so this one never
+   * started. Answering a createCall sent during the call, it refuses just that
+   * createCall.
    */
   private endsCall(event: TelloEvent): boolean {
-    return (
-      this.active &&
-      event.requestId !== undefined &&
-      this.callRequestIds.has(event.requestId) &&
-      !NON_ABORTING_ERROR_CODES.has(event.code ?? "")
-    );
+    const call = this.active ? this.call : undefined;
+    if (!call || event.requestId === undefined || !call.requestIds.has(event.requestId)) return false;
+    if (event.code === "noActiveCall") return false;
+    return event.code !== "callAlreadyActive" || event.requestId === call.openingId;
+  }
+
+  /**
+   * Ends the call in progress, if any, with `error` as its outcome (none when a
+   * terminal event ended it) and releases its waitClosed() callers. Runs
+   * before the event that ended the call reaches handlers, so a handler that
+   * sends createCall opens the next call.
+   */
+  private endCall(error?: TelloError): void {
+    const call = this.active ? this.call : undefined;
+    if (!call) return;
+    this.active = false;
+    call.error = error;
+    call.ended.resolve();
   }
 
   private async finish(gen: number, code: number, reason: string): Promise<void> {
@@ -298,7 +349,9 @@ export class TelloClient extends EventEmitter<TelloEvent> {
     if (this.pendingAuth) {
       this.pendingAuth.reject(this.closeError ?? new ConnectionClosedError("connection closed during authentication"));
     }
-    this.active = false;
+    // A call cannot outlive its connection; closeError is set if one was in
+    // progress.
+    this.endCall(this.closeError);
     await this.safeEmit(EventType.Disconnected, {
       type: EventType.Disconnected,
       version: "",
@@ -308,7 +361,6 @@ export class TelloClient extends EventEmitter<TelloEvent> {
       raw: {},
     });
     this.closed.resolve();
-    this.callDone.resolve();
   }
 
   private async safeEmit(eventType: string, event: TelloEvent): Promise<void> {
