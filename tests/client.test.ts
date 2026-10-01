@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import type { WebSocket } from "ws";
 import { WebSocketServer } from "ws";
-import { CallRejectedError, EventType, TelloClient } from "../src/index.js";
+import {
+  CallRejectedError,
+  EventType,
+  PROTOCOL_VERSION,
+  SDK_VERSION,
+  TelloClient,
+} from "../src/index.js";
 
 let server: WebSocketServer | undefined;
 
@@ -654,5 +661,52 @@ describe("TelloClient", () => {
 
     await expect(client.waitClosed()).resolves.toBeUndefined();
     await client.aclose();
+  });
+});
+
+describe("client identity query", () => {
+  async function upgradeUrl(userUrl: (base: string) => string): Promise<URL> {
+    const { url, server } = await listen();
+    const seen = new Promise<string>((resolve) =>
+      server.on("connection", (socket, req) => {
+        resolve(req.url ?? "");
+        socket.on("message", () => socket.send(AUTH_OK));
+      }),
+    );
+    const client = await new TelloClient({ apiKey: "k", url: userUrl(url) }).connect();
+    const path = await seen;
+    await client.aclose();
+    return new URL(path, "ws://x");
+  }
+
+  const pkgVersion = (
+    JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+      version: string;
+    }
+  ).version;
+
+  it("SDK_VERSION matches package.json", () => {
+    expect(SDK_VERSION).toBe(pkgVersion);
+  });
+
+  it("adds sdk, version and protocol to a plain URL", async () => {
+    const u = await upgradeUrl((base) => base);
+    expect(u.pathname).toBe("/sdk");
+    expect(Object.fromEntries(u.searchParams)).toEqual({
+      sdk: "js",
+      version: pkgVersion,
+      protocol: PROTOCOL_VERSION,
+    });
+  });
+
+  it("keeps the path and existing query, overriding identity keys", async () => {
+    const u = await upgradeUrl(
+      (base) => base.replace("/sdk", "/a/b") + "?region=k r&sdk=custom&version=9",
+    );
+    expect(u.pathname).toBe("/a/b");
+    expect(u.searchParams.get("region")).toBe("k r");
+    expect(u.searchParams.getAll("sdk")).toEqual(["js"]);
+    expect(u.searchParams.getAll("version")).toEqual([pkgVersion]);
+    expect(u.searchParams.get("protocol")).toBe(PROTOCOL_VERSION);
   });
 });

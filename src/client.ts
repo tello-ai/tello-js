@@ -17,7 +17,7 @@ import {
   SessionReplacedError,
   type TelloError,
 } from "./errors.js";
-import { EventType, type TelloEvent } from "./types.js";
+import { EventType, PROTOCOL_VERSION, SDK_VERSION, type TelloEvent } from "./types.js";
 import { isTerminal, parseEvent } from "./events.js";
 import { EventEmitter } from "./realtime.js";
 
@@ -104,7 +104,7 @@ export class TelloClient extends EventEmitter<TelloEvent> {
     this.authed = false;
     // No Authorization header and no query token: the API key is sent only in
     // the first application frame after the socket opens (see authenticate()).
-    const ws = new WebSocket(this.config.url, {
+    const ws = new WebSocket(withClientIdentity(this.config.url), {
       handshakeTimeout: this.config.openTimeoutMs,
     });
     const gen = this.socketGen + 1;
@@ -378,4 +378,16 @@ export class TelloClient extends EventEmitter<TelloEvent> {
     if (code === CLOSE_SESSION_REPLACED) return new SessionReplacedError("session replaced");
     return new ConnectionClosedError("connection closed");
   }
+}
+
+/**
+ * Tags the upgrade URL with which SDK, version and protocol is connecting, so
+ * the gateway can log it. The path and other query keys are kept; our keys win.
+ */
+function withClientIdentity(url: string): string {
+  const u = new URL(url);
+  u.searchParams.set("sdk", "js");
+  u.searchParams.set("version", SDK_VERSION);
+  u.searchParams.set("protocol", PROTOCOL_VERSION);
+  return u.toString();
 }
