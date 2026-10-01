@@ -382,12 +382,36 @@ export class TelloClient extends EventEmitter<TelloEvent> {
 
 /**
  * Tags the upgrade URL with which SDK, version and protocol is connecting, so
- * the gateway can log it. The path and other query keys are kept; our keys win.
+ * the gateway can log it. The path and the user's query pairs are kept as
+ * written (only the WHATWG URL parser's own escaping, which `ws` applies
+ * anyway); pairs whose form-decoded key is an identity key are dropped, so
+ * ours are the only ones. `ws+unix:` URLs are left alone: `ws` reads the
+ * socket path from pathname + query there, so a query would break the path.
  */
 function withClientIdentity(url: string): string {
   const u = new URL(url);
-  u.searchParams.set("sdk", "js");
-  u.searchParams.set("version", SDK_VERSION);
-  u.searchParams.set("protocol", PROTOCOL_VERSION);
+  if (u.protocol === "ws+unix:") return url;
+  const identity: Record<string, string> = {
+    sdk: "js",
+    version: SDK_VERSION,
+    protocol: PROTOCOL_VERSION,
+  };
+  const kept = u.search
+    .slice(1)
+    .split("&")
+    .filter((pair) => pair !== "" && !Object.hasOwn(identity, formDecode(pair.split("=", 1)[0]!)));
+  const added = Object.entries(identity).map(
+    ([key, value]) => `${key}=${encodeURIComponent(value)}`,
+  );
+  u.search = [...kept, ...added].join("&");
   return u.toString();
+}
+
+/** Decodes a query key like `URLSearchParams` would; an undecodable key stays raw. */
+function formDecode(key: string): string {
+  try {
+    return decodeURIComponent(key.replaceAll("+", " "));
+  } catch {
+    return key;
+  }
 }

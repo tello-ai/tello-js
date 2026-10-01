@@ -31,7 +31,9 @@ close) or `auth.ok` does not arrive within `openTimeoutMs`, `connect()` rejects.
 Omitting `apiKey` / `url` falls back to `TELLO_API_KEY` / `TELLO_URL`, and then
 to `wss://api.telloai.io/sdk`. The client appends `sdk=js`, `version` and
 `protocol` query parameters to the URL it opens, so the gateway can tell which
-SDK is connecting; the path and any other query parameters are kept.
+SDK is connecting. The path and your other query parameters are kept as
+written; any `sdk` / `version` / `protocol` pairs you put in the URL are
+replaced. `ws+unix:` URLs are opened unchanged, without these parameters.
 
 ## 3. Connect + start a call
 
