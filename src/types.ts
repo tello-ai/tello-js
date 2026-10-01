@@ -1,7 +1,7 @@
 export const PROTOCOL_VERSION = "1.0";
 
 /** Published version of this package; a test keeps it equal to package.json. */
-export const SDK_VERSION = "0.1.1";
+export const SDK_VERSION = "0.1.2";
 
 export const EventType = {
   AuthOk: "auth.ok",
