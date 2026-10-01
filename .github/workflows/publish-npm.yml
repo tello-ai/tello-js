@@ -18,10 +18,17 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
       - run: npm ci
+      - name: Check tag matches package.json version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [ "${TAG_VERSION}" != "${PACKAGE_VERSION}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${PACKAGE_VERSION}"
+            exit 1
+          fi
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
       - id: published
         run: |
           PACKAGE_NAME="$(node -p "require('./package.json').name")"
