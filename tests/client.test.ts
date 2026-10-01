@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { WebSocket } from "ws";
 import { WebSocketServer } from "ws";
 import {
@@ -665,48 +668,79 @@ describe("TelloClient", () => {
 });
 
 describe("client identity query", () => {
-  async function upgradeUrl(userUrl: (base: string) => string): Promise<URL> {
+  function answerAuth(socket: WebSocket): void {
+    socket.on("message", () => socket.send(AUTH_OK));
+  }
+
+  /** The request target (path + query) the fake gateway received on upgrade. */
+  async function upgradeTarget(userUrl: (base: string) => string): Promise<string> {
     const { url, server } = await listen();
     const seen = new Promise<string>((resolve) =>
       server.on("connection", (socket, req) => {
         resolve(req.url ?? "");
-        socket.on("message", () => socket.send(AUTH_OK));
+        answerAuth(socket);
       }),
     );
     const client = await new TelloClient({ apiKey: "k", url: userUrl(url) }).connect();
-    const path = await seen;
+    const target = await seen;
     await client.aclose();
-    return new URL(path, "ws://x");
+    return target;
   }
 
-  const pkgVersion = (
-    JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
-      version: string;
-    }
-  ).version;
+  const pkg: unknown = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  const pkgVersion =
+    pkg && typeof pkg === "object" && "version" in pkg && typeof pkg.version === "string"
+      ? pkg.version
+      : "";
+  const identity = `sdk=js&version=${pkgVersion}&protocol=${encodeURIComponent(PROTOCOL_VERSION)}`;
 
   it("SDK_VERSION matches package.json", () => {
     expect(SDK_VERSION).toBe(pkgVersion);
   });
 
   it("adds sdk, version and protocol to a plain URL", async () => {
-    const u = await upgradeUrl((base) => base);
-    expect(u.pathname).toBe("/sdk");
-    expect(Object.fromEntries(u.searchParams)).toEqual({
-      sdk: "js",
-      version: pkgVersion,
-      protocol: PROTOCOL_VERSION,
-    });
+    await expect(upgradeTarget((base) => base)).resolves.toBe(`/sdk?${identity}`);
   });
 
-  it("keeps the path and existing query, overriding identity keys", async () => {
-    const u = await upgradeUrl(
-      (base) => base.replace("/sdk", "/a/b") + "?region=k r&sdk=custom&version=9",
+  it("keeps the path and the user's query pairs byte for byte", async () => {
+    const target = await upgradeTarget(
+      (base) => base.replace("/sdk", "/a/b") + "?a=1%202&flag&t=~&b=x;y&c=%zz&d=1+2",
     );
-    expect(u.pathname).toBe("/a/b");
-    expect(u.searchParams.get("region")).toBe("k r");
-    expect(u.searchParams.getAll("sdk")).toEqual(["js"]);
-    expect(u.searchParams.getAll("version")).toEqual([pkgVersion]);
-    expect(u.searchParams.get("protocol")).toBe(PROTOCOL_VERSION);
+    expect(target).toBe(`/a/b?a=1%202&flag&t=~&b=x;y&c=%zz&d=1+2&${identity}`);
+  });
+
+  it("drops user identity pairs, including form-encoded keys, so none repeat", async () => {
+    const target = await upgradeTarget(
+      (base) =>
+        base + "?%73dk=custom&sdk=x&&region=kr&version=9&protoc%6fl=0&sdk%zz=1&+sdk=2",
+    );
+    expect(target).toBe(`/sdk?region=kr&sdk%zz=1&+sdk=2&${identity}`);
+  });
+
+  it("opens ws+unix URLs untouched, without identity", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tello-ws-"));
+    const socketPath = join(dir, "gw.sock");
+    const http = createServer();
+    const wss = new WebSocketServer({ server: http });
+    const targets: string[] = [];
+    wss.on("connection", (socket, req) => {
+      targets.push(req.url ?? "");
+      answerAuth(socket);
+    });
+    await new Promise<void>((resolve) => http.listen(socketPath, resolve));
+    try {
+      for (const url of [`ws+unix:${socketPath}`, `ws+unix:${socketPath}:/sdk?region=kr`]) {
+        const client = await new TelloClient({ apiKey: "k", url }).connect();
+        await client.aclose();
+      }
+      expect(targets).toEqual(["/", "/sdk?region=kr"]);
+    } finally {
+      wss.clients.forEach((client) => client.terminate());
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+      await new Promise<void>((resolve) => http.close(() => resolve()));
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
