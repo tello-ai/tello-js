@@ -31,6 +31,7 @@ ESM과 CJS 빌드가 타입 선언과 함께 들어 있습니다. 런타임 의�
 
 `apiKey`와 `url`을 생략하면 `TELLO_API_KEY` / `TELLO_URL`을 읽고, 그것도 없으면
 `wss://api.telloai.io/sdk`로 폴백합니다.
+연결 시 SDK는 URL에 `sdk=js`, `version`, `protocol` 쿼리를 자동으로 붙입니다(경로와 다른 쿼리는 유지).
 
 ## 3. 연결 + 통화 시작
 
