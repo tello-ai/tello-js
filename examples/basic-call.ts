@@ -1,7 +1,7 @@
 /**
  * Minimal end-to-end example: connect, start a call, answer each user turn.
  *
- * Build the SDK once, then run against a locally-running turn-provider-gateway:
+ * Build the SDK once, then run against a locally-running API gateway (api-gateway):
  *
  *   npm run build
  *   TELLO_API_KEY=tello_live_xxx TELLO_URL=ws://localhost:3000/sdk \

@@ -45,7 +45,7 @@ function requireEnvironment(): Config {
       process.env.LIVE_CALL_PROMPT ??
       "Run a controlled SDK live scenario and keep the conversation brief.",
     reply:
-      process.env.LIVE_CALL_REPLY ?? "This is a controlled TPG SDK live scenario. Thank you.",
+      process.env.LIVE_CALL_REPLY ?? "This is a controlled Tello SDK live scenario. Thank you.",
   };
 }
 
