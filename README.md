@@ -2,13 +2,13 @@
 
 # @tello-ai/sdk
 
-Node.js WebSocket SDK for the Tello `/sdk` protocol. The SDK is the
-"conversation brain": the gateway streams each caller turn from a live phone
-call, and your handler's reply is forwarded back into the call.
+Node.js SDK for Tello. `TelloClient` speaks the WebSocket `/sdk` protocol and is
+the "conversation brain": the gateway streams each caller turn from a live phone
+call, and your handler's reply is forwarded back into the call. `TelloApi`
+manages account resources — tools, agents, crews, call drafts — over the public
+REST API ([§7](#7-rest-resource-api)).
 
 > repo: `tello-js` · npm package: `@tello-ai/sdk`
->
-> Transport is WebSocket only. There is no REST or webhook surface.
 
 ## 1. Install
 
@@ -193,7 +193,128 @@ The gateway drives a WS-level ping heartbeat; `ws` answers pongs automatically.
 There is no reconnect/resume — treat an abnormal close as reconnect-worthy and
 restart the call.
 
-## 7. Examples
+## 7. REST resource API
+
+`TelloApi` is a separate client for the public REST API (`/v1`): tools, agents
+and crews, generating a crew from a goal, and call drafts. It uses Node's
+global `fetch` (Node 18+), so it adds no dependency. Calls REST (create, get,
+list, end, transfer) is not part of it.
+
+```ts
+import { TelloApi } from "@tello-ai/sdk";
+
+const api = new TelloApi(); // apiKey ← TELLO_API_KEY
+
+const { data: agents } = await api.agents.list();
+const tool = await api.tools.create(
+  { type: "endCall", name: "End call", functionName: "end_call" },
+  { idempotencyKey: "tool-end-call-001" },
+);
+await api.tools.update(tool.id, { description: "Ends the call politely" });
+```
+
+| option | default |
+| --- | --- |
+| `apiKey` | `TELLO_API_KEY` (missing → the same error as `TelloClient`) |
+| `apiUrl` | `TELLO_API_URL`, then `https://api.telloai.io/v1`. `https` only; `http` is accepted on `127.0.0.1` / `localhost` / `::1` alone. Trailing `/` dropped |
+| `timeoutMs` | `30000` per request |
+| `longTimeoutMs` | `120000` for `callDrafts.create` / `revise` / `confirm` and `crews.generate` |
+
+Every request carries `Authorization: Bearer <key>`, `Accept: application/json`
+and `User-Agent: tello-js-sdk/<version>`. The key never appears in errors or
+when the client is inspected. Requests are **never retried**; retrying with an
+idempotency key is up to you.
+
+| method | HTTP | success | resolves with |
+| --- | --- | --- | --- |
+| `tools.list({ limit?, cursor? })` | `GET /tools` | 200 | `{ data, nextCursor }` |
+| `tools.get(id)` | `GET /tools/{id}` | 200 | tool |
+| `tools.create(body, { idempotencyKey? })` | `POST /tools` | 201 | tool |
+| `tools.update(id, patch)` | `PATCH /tools/{id}` | 200 | tool |
+| `tools.delete(id)` | `DELETE /tools/{id}` | 204 | `undefined` |
+| `agents.list()` / `crews.list()` | `GET /agents` · `/crews` | 200 | `{ data: [{ id, name, description, isDefault }] }` |
+| `agents.get` / `create` / `update` / `delete` | `/agents[/{id}]` | 200 / 201 / 200 / 204 | agent / `undefined` |
+| `crews.get` / `create` / `update` / `delete` | `/crews[/{id}]` | 200 / 201 / 200 / 204 | crew / `undefined` |
+| `crews.generate({ goal }, { idempotencyKey? })` | `POST /crews/generate` | 202 (200 for the same goal's job) | job `{ id, status }` |
+| `crews.generateAndWait({ goal }, { pollIntervalMs?, timeoutMs?, idempotencyKey? })` | generate, then poll | — | finished job |
+| `crewGenerations.get(id)` | `GET /crew-generations/{id}` | 200 | job `running` / `succeeded` / `failed` |
+| `callDrafts.create(body, { idempotencyKey? })` | `POST /call-drafts` | 201 | draft |
+| `callDrafts.revise(draftId, request, { idempotencyKey? })` | `POST /call-drafts/{id}/revise` | 200 | draft with a **new id** |
+| `callDrafts.confirm(draftId, { idempotencyKey? })` | `POST /call-drafts/{id}/confirm` | 201 | call |
+
+Bodies and responses are plain JSON objects; fields the SDK does not type are
+kept. Ids are URL-encoded; an empty id rejects with `TypeError` before any
+request.
+
+> **Writes go live at once.** Creating or updating a tool, agent or crew saves,
+> deploys and promotes it; the next call uses it.
+>
+> **`callDrafts.confirm` places a real, billed call.** `callDrafts.create` can too:
+> an agent with a ready scenario is called at once (`status: "confirmed"` with
+> `callId`). Every draft status — `pendingConfirmation`, `needsClarification`,
+> `refused`, `confirmed` — is a success, not an error.
+
+`Idempotency-Key` is sent only when you pass `idempotencyKey`, except for
+`callDrafts.confirm`: the API requires it, so the SDK makes a UUID v4 when you
+pass none and puts it on any error so you can retry with the same key. A key
+must be 1–255 printable ASCII characters without commas; anything else rejects
+with `TypeError` before any request.
+
+`crews.generateAndWait` returns a `failed` job as it is — branch on `status`
+and `error.code`. If the job is still running at `timeoutMs` (default 10
+minutes) it rejects with `CrewGenerationTimeoutError` (`generationId`); the job
+goes on and `crewGenerations.get` can follow it.
+
+### REST errors
+
+| error | when | fields |
+| --- | --- | --- |
+| `TelloApiError` | the API answered with an error, or with a success it does not document | `status`, `code`, `message`, `data`, `idempotencyKey` |
+| `TelloApiConnectionError` | no response: connection failed or dropped, or timeout | `cause`, `idempotencyKey` |
+| `CrewGenerationTimeoutError` | `generateAndWait` ran out of time | `generationId` |
+
+All extend `TelloError`. `code` is the API's `error` verbatim (snake_case, as in
+the public error table); `data` is the envelope's `data` object or `null`. A
+response that is not an error envelope (e.g. a proxy page) has
+`code: "http_<status>"`; a success status other than the documented one, or a
+body that is not a JSON object, has `code: "invalid_response"`.
+
+A `TelloApiConnectionError` on a write does **not** mean it failed: the change
+may have been applied, or a call placed. Check with `get` / `list` first, or
+resend with the same `idempotencyKey`.
+
+| HTTP | `code` | |
+| --- | --- | --- |
+| 401 | `unauthenticated` | key missing, wrong or revoked |
+| 403 | `insufficient_scope` | key lacks the scope (`data.requiredScope`) |
+| 404 | `tool_not_found` · `agent_not_found` · `crew_not_found` · `draft_not_found` · `crew_generation_not_found` | id not on this account |
+| 409 | `idempotency_key_reused` | same key, different body |
+| 409 | `crew_generation_in_progress` | another goal is being built (`data.id`) |
+| 409 | `draft_already_confirmed` | already called (`data.callId`) |
+| 410 | `draft_expired` | drafts expire after 10 minutes |
+| 422 | `crew_not_publishable` | fix the graph (`data.reason`, `data.details`) |
+| 502 | `write_outcome_unknown` | the write may have happened; check before a new key |
+| 503 | `upstream_unavailable` | not processed; retry later |
+
+```ts
+import { TelloApiConnectionError, TelloApiError } from "@tello-ai/sdk";
+
+try {
+  const call = await api.callDrafts.confirm(draft.id!);
+  console.log("calling", call.id);
+} catch (error) {
+  if (error instanceof TelloApiError && error.code === "draft_expired") {
+    // build a new draft
+  } else if (error instanceof TelloApiConnectionError) {
+    // the call may have been placed: retry with the same key, never a new one
+    await api.callDrafts.confirm(draft.id!, { idempotencyKey: error.idempotencyKey! });
+  } else {
+    throw error;
+  }
+}
+```
+
+## 8. Examples
 
 Runnable programs live in [`examples/`](examples/README.md):
 
@@ -206,12 +327,12 @@ node examples/call-summary.ts    # gated live scenario ending in call.summary
 
 They place real calls. Read [`examples/README.md`](examples/README.md) first.
 
-## 8. Version compatibility
+## 9. Version compatibility
 
 `@tello-ai/sdk 0.1.x` implements Tello WS protocol `1.0` (`PROTOCOL_VERSION`).
 
 The full frame contract is in [`docs/protocol/sdk-ws.v1.md`](docs/protocol/sdk-ws.v1.md),
 with [`docs/events/sdk-events.v1.schema.json`](docs/events/sdk-events.v1.schema.json)
 and [`docs/errors/errors.v1.json`](docs/errors/errors.v1.json). Those three files
-are generated copies of the canonical contract that lives beside the gateway
-implementation — read them here, edit them there.
+are generated copies of the canonical contract that lives beside the API
+gateway (`api-gateway`) implementation — read them here, edit them there.

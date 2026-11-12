@@ -2,13 +2,12 @@
 
 # @tello-ai/sdk
 
-Tello `/sdk` 프로토콜용 Node.js WebSocket SDK. SDK가 대화의 두뇌를 맡습니다.
-게이트웨이는 진행 중인 통화에서 상대방이 말한 턴을 실시간으로 넘겨주고,
-핸들러가 만든 답변은 다시 통화로 전달됩니다.
+Tello용 Node.js SDK. `TelloClient`는 WebSocket `/sdk` 프로토콜로 대화의 두뇌를
+맡습니다. 게이트웨이는 진행 중인 통화에서 상대방이 말한 턴을 실시간으로 넘겨주고,
+핸들러가 만든 답변은 다시 통화로 전달됩니다. `TelloApi`는 공개 REST API로 도구·
+에이전트·크루·통화 초안 같은 계정 자원을 관리합니다([7절](#7-rest-자원-api)).
 
 > 저장소: `tello-js` · npm 패키지: `@tello-ai/sdk`
->
-> 전송 계층은 WebSocket뿐입니다. REST나 webhook은 제공하지 않습니다.
 
 ## 1. 설치
 
@@ -193,7 +192,127 @@ WS 수준 ping heartbeat는 게이트웨이가 주도하고, pong은 `ws`가 알
 재연결이나 세션 재개 프로토콜은 없습니다. 비정상 종료가 나면 재연결이 필요한
 상황으로 보고 통화를 처음부터 다시 시작하세요.
 
-## 7. 예제
+## 7. REST 자원 API
+
+`TelloApi`는 공개 REST API(`/v1`)용 별도 클라이언트입니다. 도구·에이전트·크루
+관리, 목표로 크루 만들기, 통화 초안을 다룹니다. Node 전역 `fetch`(Node 18+)를
+쓰므로 의존성이 늘지 않습니다. 통화 REST(생성·조회·목록·종료·전환)는 들어 있지
+않습니다.
+
+```ts
+import { TelloApi } from "@tello-ai/sdk";
+
+const api = new TelloApi(); // apiKey ← TELLO_API_KEY
+
+const { data: agents } = await api.agents.list();
+const tool = await api.tools.create(
+  { type: "endCall", name: "통화 끊기", functionName: "end_call" },
+  { idempotencyKey: "tool-end-call-001" },
+);
+await api.tools.update(tool.id, { description: "정중하게 통화를 끝냅니다" });
+```
+
+| 옵션 | 기본값 |
+| --- | --- |
+| `apiKey` | `TELLO_API_KEY` (없으면 `TelloClient`와 같은 오류) |
+| `apiUrl` | `TELLO_API_URL`, 그다음 `https://api.telloai.io/v1`. `https`만 받고, `http`는 `127.0.0.1`·`localhost`·`::1`에서만 받습니다. 끝 `/`는 지웁니다 |
+| `timeoutMs` | 요청마다 `30000` |
+| `longTimeoutMs` | `callDrafts.create`·`revise`·`confirm`, `crews.generate`는 `120000` |
+
+모든 요청에 `Authorization: Bearer <키>`, `Accept: application/json`,
+`User-Agent: tello-js-sdk/<버전>`을 붙입니다. 키는 오류나 클라이언트 출력 어디에도
+나오지 않습니다. 요청은 **자동으로 재시도하지 않습니다**. 멱등 키로 다시 보낼지는
+호출하는 쪽이 정합니다.
+
+| 메서드 | HTTP | 성공 | 결과 |
+| --- | --- | --- | --- |
+| `tools.list({ limit?, cursor? })` | `GET /tools` | 200 | `{ data, nextCursor }` |
+| `tools.get(id)` | `GET /tools/{id}` | 200 | 도구 |
+| `tools.create(body, { idempotencyKey? })` | `POST /tools` | 201 | 도구 |
+| `tools.update(id, patch)` | `PATCH /tools/{id}` | 200 | 도구 |
+| `tools.delete(id)` | `DELETE /tools/{id}` | 204 | `undefined` |
+| `agents.list()` / `crews.list()` | `GET /agents` · `/crews` | 200 | `{ data: [{ id, name, description, isDefault }] }` |
+| `agents.get` / `create` / `update` / `delete` | `/agents[/{id}]` | 200 / 201 / 200 / 204 | 에이전트 / `undefined` |
+| `crews.get` / `create` / `update` / `delete` | `/crews[/{id}]` | 200 / 201 / 200 / 204 | 크루 / `undefined` |
+| `crews.generate({ goal }, { idempotencyKey? })` | `POST /crews/generate` | 202 (같은 목표의 작업이면 200) | 작업 `{ id, status }` |
+| `crews.generateAndWait({ goal }, { pollIntervalMs?, timeoutMs?, idempotencyKey? })` | generate 후 폴링 | — | 끝난 작업 |
+| `crewGenerations.get(id)` | `GET /crew-generations/{id}` | 200 | 작업 `running`·`succeeded`·`failed` |
+| `callDrafts.create(body, { idempotencyKey? })` | `POST /call-drafts` | 201 | 초안 |
+| `callDrafts.revise(draftId, request, { idempotencyKey? })` | `POST /call-drafts/{id}/revise` | 200 | **새 id**의 초안 |
+| `callDrafts.confirm(draftId, { idempotencyKey? })` | `POST /call-drafts/{id}/confirm` | 201 | 통화 |
+
+본문과 응답은 평범한 JSON 객체이고, SDK가 타입으로 정하지 않은 칸도 그대로
+남습니다. id는 URL 인코딩하고, 빈 id는 요청 없이 `TypeError`로 reject 됩니다.
+
+> **쓰기는 바로 운영에 반영됩니다.** 도구·에이전트·크루를 만들거나 고치면 저장,
+> 배포, 운영 반영까지 한 번에 하고 다음 통화부터 씁니다.
+>
+> **`callDrafts.confirm`은 실제 과금 통화를 겁니다.** `callDrafts.create`도 걸 수
+> 있습니다. 완성된 시나리오가 있는 에이전트는 확인 없이 바로 걸고
+> `status: "confirmed"`와 `callId`를 돌려줍니다. 초안 상태
+> `pendingConfirmation`·`needsClarification`·`refused`·`confirmed`는 모두 성공이고
+> 오류가 아닙니다.
+
+`Idempotency-Key`는 `idempotencyKey`를 넘긴 때만 보냅니다. 예외는
+`callDrafts.confirm`입니다. API가 키를 요구하므로 넘기지 않으면 SDK가 UUID v4를
+만들어 보내고, 같은 키로 다시 보낼 수 있게 모든 오류에 그 키를 싣습니다. 키는
+쉼표 없는 출력 가능한 ASCII 1~255자여야 하고, 어기면 요청 없이 `TypeError`로
+reject 됩니다.
+
+`crews.generateAndWait`은 `failed` 작업도 그대로 돌려줍니다. `status`와
+`error.code`로 분기하세요. `timeoutMs`(기본 10분)가 지나도 작업이 진행 중이면
+`CrewGenerationTimeoutError`(`generationId`)로 reject 됩니다. 작업은 계속되므로
+`crewGenerations.get`으로 이어서 볼 수 있습니다.
+
+### REST 오류
+
+| 오류 | 언제 | 칸 |
+| --- | --- | --- |
+| `TelloApiError` | API가 오류로 답했거나 문서에 없는 성공으로 답함 | `status`, `code`, `message`, `data`, `idempotencyKey` |
+| `TelloApiConnectionError` | 응답 없음: 연결 실패·끊김·타임아웃 | `cause`, `idempotencyKey` |
+| `CrewGenerationTimeoutError` | `generateAndWait` 시간 초과 | `generationId` |
+
+모두 `TelloError`를 상속합니다. `code`는 API의 `error` 원문(공개 오류 표와 같은
+snake_case)이고, `data`는 봉투의 `data` 객체나 `null`입니다. 오류 봉투가 아닌
+응답(프록시 페이지 등)은 `code: "http_<상태>"`, 문서와 다른 성공 상태나 JSON 객체가
+아닌 본문은 `code: "invalid_response"`입니다.
+
+쓰기 요청의 `TelloApiConnectionError`는 실패했다는 뜻이 **아닙니다**. 이미
+반영됐거나 통화가 걸렸을 수 있습니다. 먼저 `get`·`list`로 확인하거나 같은
+`idempotencyKey`로 다시 보내세요.
+
+| HTTP | `code` | |
+| --- | --- | --- |
+| 401 | `unauthenticated` | 키가 없거나 틀렸거나 폐기됨 |
+| 403 | `insufficient_scope` | 키에 권한이 없음(`data.requiredScope`) |
+| 404 | `tool_not_found` · `agent_not_found` · `crew_not_found` · `draft_not_found` · `crew_generation_not_found` | 이 계정의 id가 아님 |
+| 409 | `idempotency_key_reused` | 같은 키로 다른 본문을 보냄 |
+| 409 | `crew_generation_in_progress` | 다른 목표를 만드는 중(`data.id`) |
+| 409 | `draft_already_confirmed` | 이미 걸었음(`data.callId`) |
+| 410 | `draft_expired` | 초안은 10분 뒤 만료 |
+| 422 | `crew_not_publishable` | 그래프를 고치세요(`data.reason`, `data.details`) |
+| 502 | `write_outcome_unknown` | 반영됐을 수 있음. 새 키로 보내기 전에 확인 |
+| 503 | `upstream_unavailable` | 처리되지 않음. 잠시 뒤 다시 보내기 |
+
+```ts
+import { TelloApiConnectionError, TelloApiError } from "@tello-ai/sdk";
+
+try {
+  const call = await api.callDrafts.confirm(draft.id!);
+  console.log("calling", call.id);
+} catch (error) {
+  if (error instanceof TelloApiError && error.code === "draft_expired") {
+    // 초안을 새로 만든다
+  } else if (error instanceof TelloApiConnectionError) {
+    // 통화가 걸렸을 수 있다: 새 키가 아니라 같은 키로 다시 보낸다
+    await api.callDrafts.confirm(draft.id!, { idempotencyKey: error.idempotencyKey! });
+  } else {
+    throw error;
+  }
+}
+```
+
+## 8. 예제
 
 바로 실행해 볼 수 있는 프로그램이 [`examples/`](examples/README.ko.md)에
 있습니다:
@@ -208,12 +327,12 @@ node examples/call-summary.ts    # 게이트로 막아 둔 라이브 시나리�
 세 예제 모두 실제 통화를 겁니다. 먼저
 [`examples/README.ko.md`](examples/README.ko.md)를 읽으세요.
 
-## 8. 버전 호환성
+## 9. 버전 호환성
 
 `@tello-ai/sdk 0.1.x`는 Tello WS 프로토콜 `1.0`을 구현합니다(`PROTOCOL_VERSION`).
 
 프레임 계약 전문은 [`docs/protocol/sdk-ws.v1.md`](docs/protocol/sdk-ws.v1.md)에
 있고, [`docs/events/sdk-events.v1.schema.json`](docs/events/sdk-events.v1.schema.json)과
 [`docs/errors/errors.v1.json`](docs/errors/errors.v1.json)이 함께 있습니다. 이
-세 파일은 게이트웨이 구현 옆에 있는 정본에서 복사해 온 생성물입니다. 읽는 건
-여기서, 고치는 건 정본에서 합니다.
+세 파일은 API 게이트웨이(`api-gateway`) 구현 옆에 있는 정본에서 복사해 온
+생성물입니다. 읽는 건 여기서, 고치는 건 정본에서 합니다.
