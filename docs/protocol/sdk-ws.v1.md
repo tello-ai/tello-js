@@ -247,7 +247,7 @@ status 어휘: `queued`, `dialing`, `ringing`, `inProgress`, `transferring`, `co
 | --- | --- | --- | --- |
 | `unauthenticated` | Authentication required | `AuthenticationError` | close 4401 동반. 10초 안에 `auth` 미도착도 포함 |
 | `ipNotAllowed` | The request IP address is not in this server key's allowed IP list | `AuthenticationError` | `auth` 응답. close 4401 동반. `ip` = 이 연결의 증명된 주소 또는 `null` |
-| `insufficientScope` | This server key does not have the scope required for this command | `PermissionError` | 그 명령만 거절하고 연결은 유지. `requiredScope` 동반 |
+| `insufficientScope` | This server key does not have the scope required for this command | `PermissionDeniedError` | 그 명령만 거절하고 연결은 유지. `requiredScope` 동반. Python 내장 `PermissionError` 와 겹치지 않게 이 이름을 쓴다 |
 | `callAlreadyActive` | A call is already active | `CallAlreadyActiveError` | |
 | `toRequired` | to is required | `ValidationError` | |
 | `callIdRequired` | callId is required | `ValidationError` | `getSummary`에 `callId` 누락 |

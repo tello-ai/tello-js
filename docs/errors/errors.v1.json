@@ -36,7 +36,7 @@
     {
       "code": "insufficientScope",
       "message": "This server key does not have the scope required for this command",
-      "sdkException": "PermissionError",
+      "sdkException": "PermissionDeniedError",
       "extra": ["requiredScope"],
       "retryable": false,
       "note": "createCall, answer, sendDtmf and cancel need calls:write; getSummary needs calls:read. Only the command is refused; the connection stays open. New in this version: an SDK without the code surfaces it as its generic server error."
