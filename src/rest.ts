@@ -12,6 +12,10 @@ export const WRITE_OUTCOME_UNKNOWN =
 export const CALL_OUTCOME_UNKNOWN =
   "a call may have been placed; retry with the same idempotency key or check the call list before trying again";
 
+/** Connection-error suffix for a draft revision whose response was lost. */
+export const REVISE_OUTCOME_UNKNOWN =
+  "the draft may have been revised and the old one superseded; retry with the same idempotency key";
+
 export type RestRequest = {
   method: "GET" | "POST" | "PATCH" | "DELETE";
   /** Path below the base URL, ids already encoded with {@link pathId}. */

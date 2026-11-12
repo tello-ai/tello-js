@@ -1,11 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { ENV_API_KEY } from "./config.js";
 import { CrewGenerationTimeoutError, type JsonObject } from "./errors.js";
 import {
+  CALL_OUTCOME_UNKNOWN,
   checkIdempotencyKey,
   pathId,
   resolveApiUrl,
   RestTransport,
+  REVISE_OUTCOME_UNKNOWN,
   WRITE_OUTCOME_UNKNOWN,
 } from "./rest.js";
 
@@ -112,6 +115,38 @@ export type GenerateAndWaitOptions = IdempotencyOptions & {
   timeoutMs?: number;
 };
 
+/** The `POST /call-drafts` body: the agent request of a call create, without `crewId`. */
+export interface CallDraftInput {
+  agentId: string;
+  to: string;
+  /** This call's goal, up to 2000 characters; required when the agent stores none. */
+  instructions?: string;
+  variables?: JsonObject;
+  [field: string]: unknown;
+}
+
+export interface CallDraft {
+  /** `cd_` id; null when no draft was stored. */
+  id: string | null;
+  status: "pendingConfirmation" | "needsClarification" | "refused" | "confirmed";
+  preview?: { summary: string; [field: string]: unknown } | null;
+  /** The AI's question when `needsClarification`. */
+  question?: string | null;
+  revision?: number;
+  revisionsLeft?: number;
+  expiresAt?: string;
+  /** The call placed at once, only when `confirmed`. */
+  callId?: string | null;
+  [field: string]: unknown;
+}
+
+/** A call object as the calls API returns it. */
+export interface Call {
+  id: string;
+  status: string;
+  [field: string]: unknown;
+}
+
 /**
  * Client for the Tello public REST resource API: tools, agents, crews, crew
  * generation and call drafts. Separate from the WebSocket {@link TelloClient}.
@@ -127,6 +162,7 @@ export class TelloApi {
   readonly agents: AgentsApi;
   readonly crews: CrewsApi;
   readonly crewGenerations: CrewGenerationsApi;
+  readonly callDrafts: CallDraftsApi;
 
   constructor(options: TelloApiOptions = {}) {
     const apiKey = options.apiKey ?? process.env[ENV_API_KEY];
@@ -144,6 +180,7 @@ export class TelloApi {
     this.agents = new AgentsApi(transport, "/agents");
     this.crewGenerations = new CrewGenerationsApi(transport);
     this.crews = new CrewsApi(transport, this.crewGenerations);
+    this.callDrafts = new CallDraftsApi(transport);
   }
 }
 
@@ -318,6 +355,64 @@ export class CrewGenerationsApi {
       method: "GET",
       path: `/crew-generations/${pathId(id)}`,
       expect: [200],
+    });
+  }
+}
+
+/**
+ * `/call-drafts`: review the scenario of an outbound call before dialing.
+ * Confirming a draft places a real, billed call.
+ */
+export class CallDraftsApi {
+  readonly #transport: RestTransport;
+
+  constructor(transport: RestTransport) {
+    this.#transport = transport;
+  }
+
+  /**
+   * Builds a draft. Usually nothing is dialed (`pendingConfirmation`,
+   * `needsClarification`, `refused`), but an agent with a ready scenario is
+   * called at once (`confirmed` with `callId`). Every status is a success.
+   */
+  async create(body: CallDraftInput, options: IdempotencyOptions = {}): Promise<CallDraft> {
+    return this.#transport.object<CallDraft>({
+      method: "POST",
+      path: "/call-drafts",
+      body,
+      expect: [201],
+      idempotencyKey: checkIdempotencyKey(options.idempotencyKey),
+      long: true,
+      outcomeUnknown: CALL_OUTCOME_UNKNOWN,
+    });
+  }
+
+  /** Applies `request` and returns a draft with a new id; the old one can no longer be confirmed. */
+  async revise(draftId: string, request: string, options: IdempotencyOptions = {}): Promise<CallDraft> {
+    return this.#transport.object<CallDraft>({
+      method: "POST",
+      path: `/call-drafts/${pathId(draftId)}/revise`,
+      body: { request },
+      expect: [200],
+      idempotencyKey: checkIdempotencyKey(options.idempotencyKey),
+      long: true,
+      outcomeUnknown: REVISE_OUTCOME_UNKNOWN,
+    });
+  }
+
+  /**
+   * Places the draft's call — a real, billed call — and returns it. The API
+   * requires an idempotency key, so a UUID v4 is made when none is given; it
+   * is on any error (`idempotencyKey`) so a retry with it never dials twice.
+   */
+  async confirm(draftId: string, options: IdempotencyOptions = {}): Promise<Call> {
+    return this.#transport.object<Call>({
+      method: "POST",
+      path: `/call-drafts/${pathId(draftId)}/confirm`,
+      expect: [201],
+      idempotencyKey: checkIdempotencyKey(options.idempotencyKey) ?? randomUUID(),
+      long: true,
+      outcomeUnknown: CALL_OUTCOME_UNKNOWN,
     });
   }
 }
