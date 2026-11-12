@@ -146,6 +146,17 @@ describe("events", () => {
     expect(event.question).toBe("why?");
   });
 
+  it("lifts requiredScope out of insufficientScope and ip out of ipNotAllowed", () => {
+    const scope = parseEvent({ type: "error", version: "1.0", code: "insufficientScope", requiredScope: "calls:write" });
+    const ip = parseEvent({ type: "error", version: "1.0", code: "ipNotAllowed", ip: "203.0.113.7" });
+    const unproven = parseEvent({ type: "error", version: "1.0", code: "ipNotAllowed", ip: null });
+
+    expect(scope.requiredScope).toBe("calls:write");
+    expect(ip.ip).toBe("203.0.113.7");
+    expect(unproven.ip).toBeNull();
+    expect(scope.ip).toBeUndefined();
+  });
+
   it("parses call.summary frames", () => {
     const summary = parseEvent({
       type: "call.summary",

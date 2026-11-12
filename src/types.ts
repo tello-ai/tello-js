@@ -39,6 +39,10 @@ export type TelloEvent = {
   message?: string;
   requestId?: string;
   question?: string;
+  /** `insufficientScope` error: the scope the command needs. */
+  requiredScope?: string;
+  /** `ipNotAllowed` error: the address judged, null when none was proven. */
+  ip?: string | null;
   durationSeconds?: number | null;
   transcript?: string | null;
   summary?: string | null;

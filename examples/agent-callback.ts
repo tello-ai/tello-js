@@ -10,7 +10,7 @@
  *   - ending the call early with cancel() on an intent keyword
  *   - mapping error frames / auth failure to typed errors
  *
- * Build the SDK once, then run against a locally-running turn-provider-gateway:
+ * Build the SDK once, then run against a locally-running API gateway (api-gateway):
  *
  *   npm run build
  *   TELLO_API_KEY=tello_live_xxx TELLO_URL=ws://localhost:3000/sdk \

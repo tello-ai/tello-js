@@ -13,9 +13,107 @@ export class TelloError extends Error {
   }
 }
 
+/** A JSON object as the REST API sends it; unknown fields are kept. */
+export type JsonObject = Record<string, unknown>;
+
+/**
+ * The public REST API answered with an error, or with a success the API does
+ * not document for the request (`code` `invalid_response`).
+ *
+ * `code` is the envelope's `error` verbatim (snake_case, as in the public
+ * error table) — branch on it and `status`, never on `message`. A response
+ * that is not an error envelope (e.g. a proxy page) has `code`
+ * `http_<status>` and the status text as `message`.
+ */
+export class TelloApiError extends TelloError {
+  declare readonly code: string;
+  /** HTTP status of the response. */
+  readonly status: number;
+  /** The envelope's `data` (e.g. `{ reason, detail }`), or null. */
+  readonly data: JsonObject | null;
+  /** The `Idempotency-Key` sent with the request, or null when none was sent. */
+  readonly idempotencyKey: string | null;
+
+  constructor(
+    message: string,
+    init: { status: number; code: string; data: JsonObject | null; idempotencyKey: string | null },
+  ) {
+    super(message, init.code);
+    this.status = init.status;
+    this.data = init.data;
+    this.idempotencyKey = init.idempotencyKey;
+  }
+}
+
+/**
+ * The REST request got no response: the connection failed, dropped or timed
+ * out. `cause` holds the underlying error.
+ *
+ * A write (create, update, delete, crew generation, call drafts) that fails
+ * this way may already have been applied — or, for call drafts, a call may
+ * have been placed. Check with get or list before trying again, or resend
+ * with the same `idempotencyKey` where the request takes one.
+ */
+export class TelloApiConnectionError extends TelloError {
+  readonly cause: unknown;
+  /** The `Idempotency-Key` sent with the request, or null when none was sent. */
+  readonly idempotencyKey: string | null;
+
+  constructor(message: string, init: { cause: unknown; idempotencyKey: string | null }) {
+    super(message);
+    this.cause = init.cause;
+    this.idempotencyKey = init.idempotencyKey;
+  }
+}
+
+/**
+ * `crews.generateAndWait` gave up while the generation was still running.
+ * The job goes on on the server; follow it with
+ * `crewGenerations.get(generationId)`.
+ */
+export class CrewGenerationTimeoutError extends TelloError {
+  /** Id of the crew generation job that was still running. */
+  readonly generationId: string;
+
+  constructor(generationId: string, timeoutMs: number) {
+    super(`crew generation ${generationId} still running after ${timeoutMs}ms`);
+    this.generationId = generationId;
+  }
+}
+
 export class ConnectionClosedError extends TelloError {}
 export class SessionReplacedError extends TelloError {}
-export class AuthenticationError extends TelloError {}
+
+/**
+ * The gateway refused the connection's key: `unauthenticated`, `ipNotAllowed`,
+ * close 4401, or no `auth.ok` in time.
+ */
+export class AuthenticationError extends TelloError {
+  /**
+   * For `ipNotAllowed`: the connection's address the key's allowed IP list
+   * was checked against, or null when the edge proved none.
+   */
+  readonly ip?: string | null;
+
+  constructor(message: string, code?: string, ip?: string | null) {
+    super(message, code);
+    this.ip = ip;
+  }
+}
+
+/**
+ * `insufficientScope`: the server key lacks the scope this command needs
+ * (`requiredScope`). Only that command is refused; the connection stays open.
+ */
+export class PermissionDeniedError extends TelloError {
+  readonly requiredScope?: string;
+
+  constructor(message: string, requiredScope?: string, code?: string) {
+    super(message, code);
+    this.requiredScope = requiredScope;
+  }
+}
+
 export class ValidationError extends TelloError {}
 export class CallAlreadyActiveError extends TelloError {}
 export class NoActiveCallError extends TelloError {}
@@ -46,10 +144,27 @@ export class CallRejectedError extends TelloError {
   }
 }
 
-export function exceptionFor(code: string, message: string, question?: string): TelloError {
+/** Fields some error frames carry beside `code` and `message`. */
+export type ErrorFrameDetails = {
+  /** `insufficientScope`: the scope the command needs. */
+  requiredScope?: string;
+  /** `ipNotAllowed`: the address judged, null when none was proven. */
+  ip?: string | null;
+};
+
+export function exceptionFor(
+  code: string,
+  message: string,
+  question?: string,
+  details: ErrorFrameDetails = {},
+): TelloError {
   switch (code) {
     case "unauthenticated":
       return new AuthenticationError(message, code);
+    case "ipNotAllowed":
+      return new AuthenticationError(message, code, details.ip);
+    case "insufficientScope":
+      return new PermissionDeniedError(message, details.requiredScope, code);
     case "toRequired":
     case "callIdRequired":
     case "dtmfDigitsRequired":
