@@ -53,6 +53,39 @@ export type ListToolsQuery = {
   cursor?: string;
 };
 
+export interface Agent {
+  id: string;
+  name: string;
+  revision?: number;
+  [field: string]: unknown;
+}
+
+export interface Crew {
+  id: string;
+  name: string;
+  graph?: JsonObject;
+  entryNodeId?: string;
+  revision?: number;
+  /** Names to fill in `variables` when calling the production revision. */
+  requiredVariables?: string[];
+  [field: string]: unknown;
+}
+
+/** An entry of `GET /agents` or `GET /crews`. */
+export interface TargetSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  /** Whether this is the account's default target (at most one across agents and crews). */
+  isDefault: boolean;
+  [field: string]: unknown;
+}
+
+export interface TargetList {
+  data: TargetSummary[];
+  [field: string]: unknown;
+}
+
 /**
  * Client for the Tello public REST resource API: tools, agents, crews, crew
  * generation and call drafts. Separate from the WebSocket {@link TelloClient}.
@@ -65,6 +98,8 @@ export class TelloApi {
   /** The REST base URL requests go to, without a trailing slash. */
   readonly apiUrl: string;
   readonly tools: ToolsApi;
+  readonly agents: AgentsApi;
+  readonly crews: CrewsApi;
 
   constructor(options: TelloApiOptions = {}) {
     const apiKey = options.apiKey ?? process.env[ENV_API_KEY];
@@ -79,6 +114,8 @@ export class TelloApi {
       options.longTimeoutMs ?? 120_000,
     );
     this.tools = new ToolsApi(transport);
+    this.agents = new AgentsApi(transport, "/agents");
+    this.crews = new CrewsApi(transport, "/crews");
   }
 }
 
@@ -136,3 +173,61 @@ export class ToolsApi {
     });
   }
 }
+
+/** List, get, create, update and delete of a call target (agent or crew). */
+export abstract class TargetApi<T extends JsonObject> {
+  protected readonly transport: RestTransport;
+  readonly #path: string;
+
+  constructor(transport: RestTransport, path: string) {
+    this.transport = transport;
+    this.#path = path;
+  }
+
+  /** Every target of this kind on the account. */
+  async list(): Promise<TargetList> {
+    return this.transport.object<TargetList>({ method: "GET", path: this.#path, expect: [200] });
+  }
+
+  async get(id: string): Promise<T> {
+    return this.transport.object<T>({ method: "GET", path: `${this.#path}/${pathId(id)}`, expect: [200] });
+  }
+
+  /** Creates, deploys and promotes it; the next call uses it. */
+  async create(body: JsonObject, options: IdempotencyOptions = {}): Promise<T> {
+    return this.transport.object<T>({
+      method: "POST",
+      path: this.#path,
+      body,
+      expect: [201],
+      idempotencyKey: checkIdempotencyKey(options.idempotencyKey),
+      outcomeUnknown: WRITE_OUTCOME_UNKNOWN,
+    });
+  }
+
+  /** Changes only the fields in `patch`, then deploys and promotes it. */
+  async update(id: string, patch: JsonObject): Promise<T> {
+    return this.transport.object<T>({
+      method: "PATCH",
+      path: `${this.#path}/${pathId(id)}`,
+      body: patch,
+      expect: [200],
+      outcomeUnknown: WRITE_OUTCOME_UNKNOWN,
+    });
+  }
+
+  async delete(id: string): Promise<void> {
+    return this.transport.empty({
+      method: "DELETE",
+      path: `${this.#path}/${pathId(id)}`,
+      expect: [204],
+      outcomeUnknown: WRITE_OUTCOME_UNKNOWN,
+    });
+  }
+}
+
+/** `/agents`: single agents that answer calls. */
+export class AgentsApi extends TargetApi<Agent> {}
+
+/** `/crews`: graphs of member agents that hand a call over to each other. */
+export class CrewsApi extends TargetApi<Crew> {}
