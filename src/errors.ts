@@ -66,6 +66,21 @@ export class TelloApiConnectionError extends TelloError {
   }
 }
 
+/**
+ * `crews.generateAndWait` gave up while the generation was still running.
+ * The job goes on on the server; follow it with
+ * `crewGenerations.get(generationId)`.
+ */
+export class CrewGenerationTimeoutError extends TelloError {
+  /** Id of the crew generation job that was still running. */
+  readonly generationId: string;
+
+  constructor(generationId: string, timeoutMs: number) {
+    super(`crew generation ${generationId} still running after ${timeoutMs}ms`);
+    this.generationId = generationId;
+  }
+}
+
 export class ConnectionClosedError extends TelloError {}
 export class SessionReplacedError extends TelloError {}
 export class AuthenticationError extends TelloError {}

@@ -1,5 +1,6 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { ENV_API_KEY } from "./config.js";
-import type { JsonObject } from "./errors.js";
+import { CrewGenerationTimeoutError, type JsonObject } from "./errors.js";
 import {
   checkIdempotencyKey,
   pathId,
@@ -86,6 +87,31 @@ export interface TargetList {
   [field: string]: unknown;
 }
 
+export interface CrewGenerateInput {
+  /** The business goal, 1-2000 characters. */
+  goal: string;
+  [field: string]: unknown;
+}
+
+/** A crew generation job (`POST /crews/generate`, `GET /crew-generations/{id}`). */
+export interface CrewGeneration {
+  id: string;
+  status: "running" | "succeeded" | "failed";
+  goal?: string;
+  /** The crew built; also present on some failures when the crew was left behind. */
+  crew?: Crew | null;
+  /** Why a failed job failed; branch on `code` (e.g. `crew_deploy_failed`). */
+  error?: { code: string; message: string; [field: string]: unknown } | null;
+  [field: string]: unknown;
+}
+
+export type GenerateAndWaitOptions = IdempotencyOptions & {
+  /** Delay between job lookups in ms. Default 2 000. */
+  pollIntervalMs?: number;
+  /** Give up with {@link CrewGenerationTimeoutError} after this many ms. Default 600 000. */
+  timeoutMs?: number;
+};
+
 /**
  * Client for the Tello public REST resource API: tools, agents, crews, crew
  * generation and call drafts. Separate from the WebSocket {@link TelloClient}.
@@ -100,6 +126,7 @@ export class TelloApi {
   readonly tools: ToolsApi;
   readonly agents: AgentsApi;
   readonly crews: CrewsApi;
+  readonly crewGenerations: CrewGenerationsApi;
 
   constructor(options: TelloApiOptions = {}) {
     const apiKey = options.apiKey ?? process.env[ENV_API_KEY];
@@ -115,7 +142,8 @@ export class TelloApi {
     );
     this.tools = new ToolsApi(transport);
     this.agents = new AgentsApi(transport, "/agents");
-    this.crews = new CrewsApi(transport, "/crews");
+    this.crewGenerations = new CrewGenerationsApi(transport);
+    this.crews = new CrewsApi(transport, this.crewGenerations);
   }
 }
 
@@ -230,4 +258,66 @@ export abstract class TargetApi<T extends JsonObject> {
 export class AgentsApi extends TargetApi<Agent> {}
 
 /** `/crews`: graphs of member agents that hand a call over to each other. */
-export class CrewsApi extends TargetApi<Crew> {}
+export class CrewsApi extends TargetApi<Crew> {
+  readonly #generations: CrewGenerationsApi;
+
+  constructor(transport: RestTransport, generations: CrewGenerationsApi) {
+    super(transport, "/crews");
+    this.#generations = generations;
+  }
+
+  /**
+   * Starts building, deploying and promoting a crew from a goal. The account
+   * builds one crew at a time: another goal in progress is
+   * `409 crew_generation_in_progress` (`data.id` is that job); the same goal
+   * returns its job instead of a new one.
+   */
+  async generate(input: CrewGenerateInput, options: IdempotencyOptions = {}): Promise<CrewGeneration> {
+    return this.transport.object<CrewGeneration>({
+      method: "POST",
+      path: "/crews/generate",
+      body: input,
+      expect: [202, 200],
+      idempotencyKey: checkIdempotencyKey(options.idempotencyKey),
+      long: true,
+      outcomeUnknown: WRITE_OUTCOME_UNKNOWN,
+    });
+  }
+
+  /**
+   * {@link generate}, then polls the job until it is no longer `running` and
+   * returns it. A `failed` job is returned, not thrown: branch on `status`.
+   */
+  async generateAndWait(input: CrewGenerateInput, options: GenerateAndWaitOptions = {}): Promise<CrewGeneration> {
+    const pollIntervalMs = options.pollIntervalMs ?? 2_000;
+    const timeoutMs = options.timeoutMs ?? 600_000;
+    const deadline = Date.now() + timeoutMs;
+    let job = await this.generate(input, { idempotencyKey: options.idempotencyKey });
+    while (job.status === "running") {
+      const left = deadline - Date.now();
+      if (left <= 0) {
+        throw new CrewGenerationTimeoutError(job.id, timeoutMs);
+      }
+      await sleep(Math.min(pollIntervalMs, left));
+      job = await this.#generations.get(job.id);
+    }
+    return job;
+  }
+}
+
+/** `/crew-generations`: jobs started by `crews.generate`. */
+export class CrewGenerationsApi {
+  readonly #transport: RestTransport;
+
+  constructor(transport: RestTransport) {
+    this.#transport = transport;
+  }
+
+  async get(id: string): Promise<CrewGeneration> {
+    return this.#transport.object<CrewGeneration>({
+      method: "GET",
+      path: `/crew-generations/${pathId(id)}`,
+      expect: [200],
+    });
+  }
+}
