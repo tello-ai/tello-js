@@ -123,6 +123,8 @@ which is display text the gateway may reword.
 | gateway `code` | error |
 | --- | --- |
 | `unauthenticated` | `AuthenticationError` (auth handshake; also close code 4401) |
+| `ipNotAllowed` | `AuthenticationError` (with `.ip`, the address judged or `null`; outside the key's allowed IP list, close 4401) |
+| `insufficientScope` | `PermissionDeniedError` (with `.requiredScope`; refuses that command only, the connection stays open) |
 | `toRequired` | `ValidationError` |
 | `callIdRequired` | `ValidationError` |
 | `dtmfDigitsRequired` | `ValidationError` |
@@ -132,7 +134,7 @@ which is display text the gateway may reword.
 | `callAlreadyActive` | `CallAlreadyActiveError` |
 | `noActiveCall` | `NoActiveCallError` |
 | `callRejected` | `CallRejectedError` (with `.question`) |
-| `internalError` | `TelloServerError` |
+| `internalError` | `TelloServerError` (answering `auth` with close 1011: the key could not be checked, not refused — reconnect later) |
 
 `createCall` can also be refused before any call exists — no `call.created`, no
 `callId`, no charge. The gateway never retries these; any retry policy is yours.
@@ -152,13 +154,13 @@ Every command error is delivered to `EventType.Error` subscribers, and none of
 them closes the socket. `waitClosed()` re-throws only an error that ends the
 call, so a failed `createCall` (e.g. `toRequired`, `callRejected`) does not hang:
 
-- auth failure (`unauthenticated` frame, close 4401, or `auth.ok` timeout) → `AuthenticationError`, thrown from `connect()`
+- auth failure (`unauthenticated` or `ipNotAllowed` frame, close 4401, or `auth.ok` timeout) → `AuthenticationError`, thrown from `connect()`; `internalError` answering `auth` (close 1011) → `TelloServerError`
 - an error answering the call's `createCall`, matched by its `requestId` → its
   mapped error above. This covers a call-start rejection, and a call that fails
   after `call.created` (the gateway cancels it and sends only that error, with
-  no terminal event). Two codes are exceptions: `noActiveCall` never ends the
-  wait, and `callAlreadyActive` ends it only when it answers the `createCall`
-  that opened the call (see below)
+  no terminal event). Three codes are exceptions: `noActiveCall` never ends the
+  wait, and `callAlreadyActive` and `insufficientScope` end it only when they
+  answer the `createCall` that opened the call (see below)
 - the connection dropping mid-call → `ConnectionClosedError`
 - the session being displaced (close 4429) → `SessionReplacedError`
 
@@ -175,8 +177,8 @@ are delivered only as `EventType.Error` events. The call keeps running, and
 `waitClosed()` keeps waiting for a terminal event or the connection to close.
 
 An `EventType.Error` handler receives the event, not an error object.
-`exceptionFor(code, message, question?)` turns it into the same typed error
-`waitClosed()` throws:
+`exceptionFor(code, message, question?, { requiredScope?, ip? }?)` turns it into
+the same typed error `waitClosed()` throws:
 
 ```ts
 import { EventType, exceptionFor, ValidationError } from "@tello-ai/sdk";
@@ -257,7 +259,8 @@ request.
 `Idempotency-Key` is sent only when you pass `idempotencyKey`, except for
 `callDrafts.confirm`: the API requires it, so the SDK makes a UUID v4 when you
 pass none and puts it on any error so you can retry with the same key. A key
-must be 1–255 printable ASCII characters without commas; anything else rejects
+must be 1–255 printable ASCII characters (header values cannot carry other
+text) without commas or control characters; anything else rejects
 with `TypeError` before any request.
 
 `crews.generateAndWait` returns a `failed` job as it is — branch on `status`

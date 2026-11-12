@@ -287,8 +287,11 @@ export class TelloClient extends EventEmitter<TelloEvent> {
       return;
     }
     if (event.type === EventType.Error) {
-      const error = exceptionFor(event.code ?? "", event.message ?? "", event.question);
-      if (event.code === "unauthenticated") {
+      const error = exceptionFor(event.code ?? "", event.message ?? "", event.question, {
+        requiredScope: event.requiredScope,
+        ip: event.ip,
+      });
+      if (this.answersAuth(event)) {
         this.closeError = error;
         this.pendingAuth?.reject(error);
       } else if (this.endsCall(event)) {
@@ -303,21 +306,36 @@ export class TelloClient extends EventEmitter<TelloEvent> {
   }
 
   /**
+   * Whether an error frame answers the auth frame and so ends the connection:
+   * a refused key (`unauthenticated`, `ipNotAllowed`, closed with 4401) or,
+   * before `auth.ok`, `internalError` — the gateway could not check the key
+   * and closes with 1011; the client may reconnect later
+   * (docs/protocol/sdk-ws.v1.md §2).
+   */
+  private answersAuth(event: TelloEvent): boolean {
+    if (event.code === "unauthenticated" || event.code === "ipNotAllowed") return true;
+    return event.code === "internalError" && this.pendingAuth !== undefined;
+  }
+
+  /**
    * Whether an error frame ends the call in progress. The gateway echoes the
    * failed command's requestId on every error frame, and a failed answer,
    * sendDtmf, getSummary or cancel leaves the call running
    * (docs/protocol/sdk-ws.v1.md §4, §6), so only an error answering one of
    * this call's createCalls counts, and never noActiveCall. callAlreadyActive
-   * counts only when it answers the createCall that opened the call: the
-   * gateway was still finishing the previous call (§4.1), so this one never
-   * started. Answering a createCall sent during the call, it refuses just that
-   * createCall.
+   * and insufficientScope count only when they answer the createCall that
+   * opened the call: the gateway was still finishing the previous call (§4.1),
+   * or refused the command alone (§4), so this one never started. Answering a
+   * createCall sent during the call, they refuse just that createCall.
    */
   private endsCall(event: TelloEvent): boolean {
     const call = this.active ? this.call : undefined;
     if (!call || event.requestId === undefined || !call.requestIds.has(event.requestId)) return false;
     if (event.code === "noActiveCall") return false;
-    return event.code !== "callAlreadyActive" || event.requestId === call.openingId;
+    if (event.code === "callAlreadyActive" || event.code === "insufficientScope") {
+      return event.requestId === call.openingId;
+    }
+    return true;
   }
 
   /**

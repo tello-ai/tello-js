@@ -122,6 +122,8 @@ await client.getSummary(callId, requestId?);
 | 게이트웨이 `code` | 오류 클래스 |
 | --- | --- |
 | `unauthenticated` | `AuthenticationError` (인증 핸드셰이크. 4401 종료 포함) |
+| `ipNotAllowed` | `AuthenticationError` (`.ip`에 판정한 주소, 모르면 `null`. 키의 허용 IP 목록 밖, 4401 종료) |
+| `insufficientScope` | `PermissionDeniedError` (`.requiredScope` 포함. 그 명령만 거절하고 연결은 유지) |
 | `toRequired` | `ValidationError` |
 | `callIdRequired` | `ValidationError` |
 | `dtmfDigitsRequired` | `ValidationError` |
@@ -131,7 +133,7 @@ await client.getSummary(callId, requestId?);
 | `callAlreadyActive` | `CallAlreadyActiveError` |
 | `noActiveCall` | `NoActiveCallError` |
 | `callRejected` | `CallRejectedError` (`.question` 포함) |
-| `internalError` | `TelloServerError` |
+| `internalError` | `TelloServerError` (`auth` 응답이면 1011 종료: 키가 거절된 게 아니라 확인하지 못한 것이므로 잠시 뒤 다시 접속) |
 
 `createCall`은 통화가 만들어지기 전에 거부될 수도 있습니다. 이 경우
 `call.created`도 `callId`도 과금도 없습니다. 게이트웨이는 재시도하지 않으므로
@@ -152,12 +154,12 @@ await client.getSummary(callId, requestId?);
 않습니다. `waitClosed()`는 통화를 끝내는 오류만 다시 throw 하므로, 실패한
 `createCall`(예: `toRequired`, `callRejected`)이 멈춘 채 남지 않습니다:
 
-- 인증 실패(`unauthenticated` 프레임, 4401 종료, `auth.ok` 타임아웃) → `connect()`가 `AuthenticationError` throw
+- 인증 실패(`unauthenticated`·`ipNotAllowed` 프레임, 4401 종료, `auth.ok` 타임아웃) → `connect()`가 `AuthenticationError` throw. `auth`에 대한 `internalError`(1011 종료) → `TelloServerError`
 - 통화의 `createCall`에 대한 오류(`requestId`로 짝지음) → 위 표의 대응 오류.
   통화 시작 거부와, `call.created` 뒤에 통화가 실패한 경우(게이트웨이가 통화를
-  취소하고 종료 이벤트 없이 그 오류만 보냄)가 여기에 해당합니다. 예외가 두
-  가지 있습니다. `noActiveCall`은 대기를 끝내지 않고, `callAlreadyActive`는
-  통화를 연 `createCall`에 대한 응답일 때만 끝냅니다(아래 참고)
+  취소하고 종료 이벤트 없이 그 오류만 보냄)가 여기에 해당합니다. 예외가 세
+  가지 있습니다. `noActiveCall`은 대기를 끝내지 않고, `callAlreadyActive`와
+  `insufficientScope`는 통화를 연 `createCall`에 대한 응답일 때만 끝냅니다(아래 참고)
 - 통화 도중 연결 끊김 → `ConnectionClosedError`
 - 다른 연결에 세션을 빼앗김(4429 종료) → `SessionReplacedError`
 
@@ -174,7 +176,7 @@ reject 됩니다. 잠시 뒤 `createCall`을 다시 보내세요. 통화가 진�
 이벤트나 연결 종료를 계속 기다립니다.
 
 `EventType.Error` 핸들러가 받는 것은 오류 객체가 아니라 이벤트입니다.
-`exceptionFor(code, message, question?)`가 이 이벤트를 `waitClosed()`가 throw
+`exceptionFor(code, message, question?, { requiredScope?, ip? }?)`가 이 이벤트를 `waitClosed()`가 throw
 하는 것과 같은 타입의 오류로 바꿔 줍니다:
 
 ```ts
@@ -256,7 +258,8 @@ await api.tools.update(tool.id, { description: "정중하게 통화를 끝냅니
 `Idempotency-Key`는 `idempotencyKey`를 넘긴 때만 보냅니다. 예외는
 `callDrafts.confirm`입니다. API가 키를 요구하므로 넘기지 않으면 SDK가 UUID v4를
 만들어 보내고, 같은 키로 다시 보낼 수 있게 모든 오류에 그 키를 싣습니다. 키는
-쉼표 없는 출력 가능한 ASCII 1~255자여야 하고, 어기면 요청 없이 `TypeError`로
+쉼표·제어문자 없는 출력 가능한 ASCII 1~255자여야 하고(헤더 값에는 다른 문자를 실을
+수 없습니다), 어기면 요청 없이 `TypeError`로
 reject 됩니다.
 
 `crews.generateAndWait`은 `failed` 작업도 그대로 돌려줍니다. `status`와

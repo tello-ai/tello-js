@@ -461,6 +461,53 @@ describe("TelloClient", () => {
     await client.aclose();
   });
 
+  it("ends the wait with PermissionDeniedError when insufficientScope answers the opening createCall", async () => {
+    const gateway = await fakeGateway((command, gateway) => {
+      if (command.event === "createCall") {
+        gateway.send({ ...errorFrame("insufficientScope", command.data.requestId), requiredScope: "calls:write" });
+      }
+    });
+    const client = await new TelloClient({ apiKey: "key-1", url: gateway.url }).connect();
+
+    await client.createCall("+821012345678");
+
+    await expect(client.waitClosed()).rejects.toMatchObject({
+      name: "PermissionDeniedError",
+      code: "insufficientScope",
+      requiredScope: "calls:write",
+    });
+    await client.aclose();
+  });
+
+  it("keeps the call and the connection when insufficientScope refuses another command", async () => {
+    const gateway = await fakeGateway((command, gateway) => {
+      if (command.event !== "createCall") {
+        gateway.send({ ...errorFrame("insufficientScope", command.data.requestId), requiredScope: "calls:read" });
+      } else if (command.data.requestId === "a") {
+        gateway.send(callEvent("call.created"));
+      } else {
+        gateway.send({ ...errorFrame("insufficientScope", command.data.requestId), requiredScope: "calls:write" });
+      }
+    });
+    const client = await new TelloClient({ apiKey: "key-1", url: gateway.url }).connect();
+    const scopes: (string | undefined)[] = [];
+    client.on(EventType.Error, (event) => {
+      scopes.push(event.requiredScope);
+    });
+
+    await client.createCall("+821012345678", "", undefined, "a");
+    await expect.poll(() => gateway.commands.length).toBe(1);
+    const wait = startWait(client);
+    await client.getSummary("c1", "summary-1");
+    await client.createCall("+821012345678", "", undefined, "b");
+    await expect.poll(() => scopes).toEqual(["calls:read", "calls:write"]);
+    expect(wait.state()).toBe("pending");
+
+    gateway.send(callEvent("call.completed", { status: "completed" }));
+    await expect.poll(wait.state).toBe("resolved");
+    await client.aclose();
+  });
+
   it("returns a wait at its own call's end when a handler starts the next call", async () => {
     const gateway = await fakeGateway((command, gateway) => {
       if (command.event === "createCall") gateway.send(callEvent("call.created"));
@@ -599,6 +646,41 @@ describe("TelloClient", () => {
     await expect(
       new TelloClient({ apiKey: "key-1", url, openTimeoutMs: 50 }).connect(),
     ).rejects.toMatchObject({ name: "AuthenticationError" });
+  });
+
+  it("rejects connect with AuthenticationError carrying the ip on ipNotAllowed", async () => {
+    const { url, server } = await listen();
+    server.on("connection", (socket) => {
+      socket.once("message", () => {
+        socket.send(
+          JSON.stringify({ type: "error", version: "1.0", code: "ipNotAllowed", message: "not allowed", ip: "203.0.113.7" }),
+        );
+        socket.close(4401, "ip_not_allowed");
+      });
+    });
+
+    await expect(new TelloClient({ apiKey: "key-1", url }).connect()).rejects.toMatchObject({
+      name: "AuthenticationError",
+      code: "ipNotAllowed",
+      ip: "203.0.113.7",
+    });
+  });
+
+  it("rejects connect with TelloServerError when the gateway cannot check the key", async () => {
+    // Not a refused key: internalError with close 1011, so the client may
+    // reconnect later (docs/protocol/sdk-ws.v1.md §2).
+    const { url, server } = await listen();
+    server.on("connection", (socket) => {
+      socket.once("message", () => {
+        socket.send(JSON.stringify({ type: "error", version: "1.0", code: "internalError", message: "Internal error" }));
+        socket.close(1011, "internal_error");
+      });
+    });
+
+    await expect(new TelloClient({ apiKey: "key-1", url }).connect()).rejects.toMatchObject({
+      name: "TelloServerError",
+      code: "internalError",
+    });
   });
 
   it("never includes the api key in a thrown error message", async () => {

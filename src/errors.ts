@@ -83,7 +83,37 @@ export class CrewGenerationTimeoutError extends TelloError {
 
 export class ConnectionClosedError extends TelloError {}
 export class SessionReplacedError extends TelloError {}
-export class AuthenticationError extends TelloError {}
+
+/**
+ * The gateway refused the connection's key: `unauthenticated`, `ipNotAllowed`,
+ * close 4401, or no `auth.ok` in time.
+ */
+export class AuthenticationError extends TelloError {
+  /**
+   * For `ipNotAllowed`: the connection's address the key's allowed IP list
+   * was checked against, or null when the edge proved none.
+   */
+  readonly ip?: string | null;
+
+  constructor(message: string, code?: string, ip?: string | null) {
+    super(message, code);
+    this.ip = ip;
+  }
+}
+
+/**
+ * `insufficientScope`: the server key lacks the scope this command needs
+ * (`requiredScope`). Only that command is refused; the connection stays open.
+ */
+export class PermissionDeniedError extends TelloError {
+  readonly requiredScope?: string;
+
+  constructor(message: string, requiredScope?: string, code?: string) {
+    super(message, code);
+    this.requiredScope = requiredScope;
+  }
+}
+
 export class ValidationError extends TelloError {}
 export class CallAlreadyActiveError extends TelloError {}
 export class NoActiveCallError extends TelloError {}
@@ -114,10 +144,27 @@ export class CallRejectedError extends TelloError {
   }
 }
 
-export function exceptionFor(code: string, message: string, question?: string): TelloError {
+/** Fields some error frames carry beside `code` and `message`. */
+export type ErrorFrameDetails = {
+  /** `insufficientScope`: the scope the command needs. */
+  requiredScope?: string;
+  /** `ipNotAllowed`: the address judged, null when none was proven. */
+  ip?: string | null;
+};
+
+export function exceptionFor(
+  code: string,
+  message: string,
+  question?: string,
+  details: ErrorFrameDetails = {},
+): TelloError {
   switch (code) {
     case "unauthenticated":
       return new AuthenticationError(message, code);
+    case "ipNotAllowed":
+      return new AuthenticationError(message, code, details.ip);
+    case "insufficientScope":
+      return new PermissionDeniedError(message, details.requiredScope, code);
     case "toRequired":
     case "callIdRequired":
     case "dtmfDigitsRequired":

@@ -38,6 +38,8 @@ export function parseEvent(frame: Record<string, unknown>): TelloEvent {
       message: stringValue(frame.message),
       requestId: typeof frame.requestId === "string" ? frame.requestId : undefined,
       question: typeof frame.question === "string" ? frame.question : undefined,
+      requiredScope: typeof frame.requiredScope === "string" ? frame.requiredScope : undefined,
+      ip: "ip" in frame ? (typeof frame.ip === "string" ? frame.ip : null) : undefined,
       raw: frame,
     };
   }
