@@ -13,6 +13,59 @@ export class TelloError extends Error {
   }
 }
 
+/** A JSON object as the REST API sends it; unknown fields are kept. */
+export type JsonObject = Record<string, unknown>;
+
+/**
+ * The public REST API answered with an error, or with a success the API does
+ * not document for the request (`code` `invalid_response`).
+ *
+ * `code` is the envelope's `error` verbatim (snake_case, as in the public
+ * error table) — branch on it and `status`, never on `message`. A response
+ * that is not an error envelope (e.g. a proxy page) has `code`
+ * `http_<status>` and the status text as `message`.
+ */
+export class TelloApiError extends TelloError {
+  declare readonly code: string;
+  /** HTTP status of the response. */
+  readonly status: number;
+  /** The envelope's `data` (e.g. `{ reason, detail }`), or null. */
+  readonly data: JsonObject | null;
+  /** The `Idempotency-Key` sent with the request, or null when none was sent. */
+  readonly idempotencyKey: string | null;
+
+  constructor(
+    message: string,
+    init: { status: number; code: string; data: JsonObject | null; idempotencyKey: string | null },
+  ) {
+    super(message, init.code);
+    this.status = init.status;
+    this.data = init.data;
+    this.idempotencyKey = init.idempotencyKey;
+  }
+}
+
+/**
+ * The REST request got no response: the connection failed, dropped or timed
+ * out. `cause` holds the underlying error.
+ *
+ * A write (create, update, delete, crew generation, call drafts) that fails
+ * this way may already have been applied — or, for call drafts, a call may
+ * have been placed. Check with get or list before trying again, or resend
+ * with the same `idempotencyKey` where the request takes one.
+ */
+export class TelloApiConnectionError extends TelloError {
+  readonly cause: unknown;
+  /** The `Idempotency-Key` sent with the request, or null when none was sent. */
+  readonly idempotencyKey: string | null;
+
+  constructor(message: string, init: { cause: unknown; idempotencyKey: string | null }) {
+    super(message);
+    this.cause = init.cause;
+    this.idempotencyKey = init.idempotencyKey;
+  }
+}
+
 export class ConnectionClosedError extends TelloError {}
 export class SessionReplacedError extends TelloError {}
 export class AuthenticationError extends TelloError {}
