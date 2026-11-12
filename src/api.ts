@@ -22,7 +22,7 @@ export type TelloApiOptions = {
   apiUrl?: string;
   /** Per-request timeout in ms. Default 30 000. */
   timeoutMs?: number;
-  /** Timeout in ms for call drafts and crew generation. Default 120 000. */
+  /** Timeout in ms for tool, agent and crew writes, call drafts and crew generation. Default 120 000. */
   longTimeoutMs?: number;
 };
 
@@ -214,6 +214,7 @@ export class ToolsApi {
       body,
       expect: [201],
       idempotencyKey: checkIdempotencyKey(options.idempotencyKey),
+      long: true,
       outcomeUnknown: WRITE_OUTCOME_UNKNOWN,
     });
   }
@@ -225,6 +226,7 @@ export class ToolsApi {
       path: `/tools/${pathId(id)}`,
       body: patch,
       expect: [200],
+      long: true,
       outcomeUnknown: WRITE_OUTCOME_UNKNOWN,
     });
   }
@@ -234,6 +236,7 @@ export class ToolsApi {
       method: "DELETE",
       path: `/tools/${pathId(id)}`,
       expect: [204],
+      long: true,
       outcomeUnknown: WRITE_OUTCOME_UNKNOWN,
     });
   }
@@ -266,6 +269,7 @@ export abstract class TargetApi<T extends JsonObject> {
       body,
       expect: [201],
       idempotencyKey: checkIdempotencyKey(options.idempotencyKey),
+      long: true,
       outcomeUnknown: WRITE_OUTCOME_UNKNOWN,
     });
   }
@@ -277,6 +281,7 @@ export abstract class TargetApi<T extends JsonObject> {
       path: `${this.#path}/${pathId(id)}`,
       body: patch,
       expect: [200],
+      long: true,
       outcomeUnknown: WRITE_OUTCOME_UNKNOWN,
     });
   }
@@ -286,6 +291,7 @@ export abstract class TargetApi<T extends JsonObject> {
       method: "DELETE",
       path: `${this.#path}/${pathId(id)}`,
       expect: [204],
+      long: true,
       outcomeUnknown: WRITE_OUTCOME_UNKNOWN,
     });
   }

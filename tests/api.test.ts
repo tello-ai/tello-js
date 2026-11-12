@@ -350,3 +350,36 @@ describe("TelloApi tools", () => {
     expect(error).toMatchObject({ status: 200, code: "invalid_response" });
   });
 });
+
+describe("TelloApi timeout choice", () => {
+  // Writes save, deploy and promote in one request, so they may outlast the
+  // default timeout; reads may not.
+  type Tello = InstanceType<typeof TelloApi>;
+  const writes: [string, number, (tello: Tello) => Promise<unknown>][] = [];
+  for (const resource of ["tools", "agents", "crews"] as const) {
+    writes.push(
+      [`${resource}.create`, 201, (t) => t[resource].create({ name: "x" })],
+      [`${resource}.update`, 200, (t) => t[resource].update("1", { name: "x" })],
+      [`${resource}.delete`, 204, (t) => t[resource].delete("1")],
+    );
+  }
+
+  it.each(writes)("%s waits for the long timeout", async (_name, status, send) => {
+    const api = await fakeApi([{ status, json: status === 204 ? undefined : { id: "1" }, delayMs: 150 }]);
+    const tello = new TelloApi({ apiKey: KEY, apiUrl: api.url, timeoutMs: 30, longTimeoutMs: 5_000 });
+
+    await expect(send(tello)).resolves.not.toBeInstanceOf(Error);
+  });
+
+  it.each([
+    ["tools.get", (t: Tello) => t.tools.get("1")],
+    ["tools.list", (t: Tello) => t.tools.list()],
+    ["agents.get", (t: Tello) => t.agents.get("1")],
+    ["crews.list", (t: Tello) => t.crews.list()],
+  ])("%s keeps the default timeout", async (_name, send) => {
+    const api = await fakeApi([{ status: 200, json: { id: "1" }, delayMs: 150 }]);
+    const tello = new TelloApi({ apiKey: KEY, apiUrl: api.url, timeoutMs: 30, longTimeoutMs: 5_000 });
+
+    await expect(send(tello)).rejects.toBeInstanceOf(TelloApiConnectionError);
+  });
+});

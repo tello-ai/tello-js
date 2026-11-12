@@ -218,8 +218,8 @@ await api.tools.update(tool.id, { description: "정중하게 통화를 끝냅니
 | --- | --- |
 | `apiKey` | `TELLO_API_KEY` (없으면 `TelloClient`와 같은 오류) |
 | `apiUrl` | `TELLO_API_URL`, 그다음 `https://api.telloai.io/v1`. `https`만 받고, `http`는 `127.0.0.1`·`localhost`·`::1`에서만 받습니다. 끝 `/`는 지웁니다 |
-| `timeoutMs` | 요청마다 `30000` |
-| `longTimeoutMs` | `callDrafts.create`·`revise`·`confirm`, `crews.generate`는 `120000` |
+| `timeoutMs` | 조회(`list`·`get`)는 `30000` |
+| `longTimeoutMs` | 도구·에이전트·크루 `create`·`update`·`delete`(저장·배포·운영 반영을 한 번에 함), `callDrafts.create`·`revise`·`confirm`, `crews.generate`는 `120000` |
 
 모든 요청에 `Authorization: Bearer <키>`, `Accept: application/json`,
 `User-Agent: tello-js-sdk/<버전>`을 붙입니다. 키는 오류나 클라이언트 출력 어디에도

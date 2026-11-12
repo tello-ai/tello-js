@@ -219,8 +219,8 @@ await api.tools.update(tool.id, { description: "Ends the call politely" });
 | --- | --- |
 | `apiKey` | `TELLO_API_KEY` (missing → the same error as `TelloClient`) |
 | `apiUrl` | `TELLO_API_URL`, then `https://api.telloai.io/v1`. `https` only; `http` is accepted on `127.0.0.1` / `localhost` / `::1` alone. Trailing `/` dropped |
-| `timeoutMs` | `30000` per request |
-| `longTimeoutMs` | `120000` for `callDrafts.create` / `revise` / `confirm` and `crews.generate` |
+| `timeoutMs` | `30000` for reads (`list`, `get`) |
+| `longTimeoutMs` | `120000` for tool, agent and crew `create` / `update` / `delete` (save, deploy and promote in one request), `callDrafts.create` / `revise` / `confirm` and `crews.generate` |
 
 Every request carries `Authorization: Bearer <key>`, `Accept: application/json`
 and `User-Agent: tello-js-sdk/<version>`. The key never appears in errors or
