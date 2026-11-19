@@ -288,6 +288,7 @@ snake_case)이고, `data`는 봉투의 `data` 객체나 `null`입니다. 오류 
 | --- | --- | --- |
 | 401 | `unauthenticated` | 키가 없거나 틀렸거나 폐기됨 |
 | 403 | `insufficient_scope` | 키에 권한이 없음(`data.requiredScope`) |
+| 403 | `ip_not_allowed` | 요청 주소가 키의 허용 IP 목록 밖(`data.ip`에 판정한 주소, 모르면 `null`) |
 | 404 | `tool_not_found` · `agent_not_found` · `crew_not_found` · `draft_not_found` · `crew_generation_not_found` | 이 계정의 id가 아님 |
 | 409 | `idempotency_key_reused` | 같은 키로 다른 본문을 보냄 |
 | 409 | `crew_generation_in_progress` | 다른 목표를 만드는 중(`data.id`) |
@@ -332,7 +333,7 @@ node examples/call-summary.ts    # 게이트로 막아 둔 라이브 시나리�
 
 ## 9. 버전 호환성
 
-`@tello-ai/sdk 0.1.x`는 Tello WS 프로토콜 `1.0`을 구현합니다(`PROTOCOL_VERSION`).
+`@tello-ai/sdk 0.1.x`·`0.2.x`는 Tello WS 프로토콜 `1.0`을 구현합니다(`PROTOCOL_VERSION`).
 
 프레임 계약 전문은 [`docs/protocol/sdk-ws.v1.md`](docs/protocol/sdk-ws.v1.md)에
 있고, [`docs/events/sdk-events.v1.schema.json`](docs/events/sdk-events.v1.schema.json)과

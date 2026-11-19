@@ -290,6 +290,7 @@ resend with the same `idempotencyKey`.
 | --- | --- | --- |
 | 401 | `unauthenticated` | key missing, wrong or revoked |
 | 403 | `insufficient_scope` | key lacks the scope (`data.requiredScope`) |
+| 403 | `ip_not_allowed` | the request address is not in the key's allowed IP list (`data.ip`, the address judged or `null`) |
 | 404 | `tool_not_found` · `agent_not_found` · `crew_not_found` · `draft_not_found` · `crew_generation_not_found` | id not on this account |
 | 409 | `idempotency_key_reused` | same key, different body |
 | 409 | `crew_generation_in_progress` | another goal is being built (`data.id`) |
@@ -332,7 +333,7 @@ They place real calls. Read [`examples/README.md`](examples/README.md) first.
 
 ## 9. Version compatibility
 
-`@tello-ai/sdk 0.1.x` implements Tello WS protocol `1.0` (`PROTOCOL_VERSION`).
+`@tello-ai/sdk 0.1.x` and `0.2.x` implement Tello WS protocol `1.0` (`PROTOCOL_VERSION`).
 
 The full frame contract is in [`docs/protocol/sdk-ws.v1.md`](docs/protocol/sdk-ws.v1.md),
 with [`docs/events/sdk-events.v1.schema.json`](docs/events/sdk-events.v1.schema.json)
